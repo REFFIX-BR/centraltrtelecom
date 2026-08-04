@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+**/node_modules/
 
 # Expo
 .expo/
@@ -32,10 +33,15 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
 
-# typescript
-*.tsbuildinfo
+# admin
+admin/node_modules/
+admin/dist/
+admin/server/uploads/*
+!admin/server/uploads/.gitkeep
 
-# generated native folders
-/ios
-/android
+
+admin/logs/
+
+admin/.env

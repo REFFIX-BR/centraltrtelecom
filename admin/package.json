@@ -1,0 +1,41 @@
+{
+  "name": "trtelecom-admin",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite",
+    "dev:api": "node server/index.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node server/index.mjs",
+    "panel": "vite",
+    "panel:build": "tsc -b && vite build",
+    "panel:preview": "vite preview",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop trtelecom-propagandas-api",
+    "pm2:restart": "pm2 restart trtelecom-propagandas-api",
+    "pm2:delete": "pm2 delete trtelecom-propagandas-api",
+    "pm2:logs": "pm2 logs trtelecom-propagandas-api",
+    "pm2:status": "pm2 status"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "multer": "^2.2.0",
+    "pg": "^8.22.0",
+    "pm2": "^7.0.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.0.6"
+  }
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "banner-1785503453506",
+    "title": "Rede Mesh",
+    "subtitle": "",
+    "ctaLabel": "",
+    "linkUrl": "",
+    "imageUrl": "/uploads/banner-1785503442609-187909.png",
+    "theme": "navy",
+    "active": true,
+    "showCta": false,
+    "imageOnly": true,
+    "order": 1,
+    "createdAt": "2026-07-31T13:10:53.506Z",
+    "updatedAt": "2026-08-04T19:18:53.762Z"
+  },
+  {
+    "id": "banner-1785503797358",
+    "title": "Telefonia móvel",
+    "subtitle": "",
+    "ctaLabel": "",
+    "linkUrl": "/telefonia",
+    "imageUrl": "/uploads/banner-1785503788579-557644.png",
+    "theme": "navy",
+    "active": true,
+    "showCta": false,
+    "imageOnly": true,
+    "order": 1,
+    "createdAt": "2026-07-31T13:16:37.358Z",
+    "updatedAt": "2026-08-04T19:18:55.463Z"
+  }
+]

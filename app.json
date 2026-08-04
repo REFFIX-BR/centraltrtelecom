@@ -1,23 +1,25 @@
 {
   "expo": {
-    "name": "central-assinante",
+    "name": "TR Telecom",
     "slug": "central-assinante",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "centralassinante",
-    "userInterfaceStyle": "automatic",
+    "scheme": "trtelecom",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trtelecom.central"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0E2C5B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.trtelecom.central"
     },
     "web": {
       "bundler": "metro",
@@ -31,7 +33,7 @@
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0E2C5B"
         }
       ]
     ],
