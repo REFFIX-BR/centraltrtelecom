@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -22,6 +23,8 @@ export type PromoBanner = {
 type BannersResponse = {
   banners?: PromoBanner[];
 };
+
+const BANNERS_CACHE_KEY = '@central/promo-banners-v1';
 
 function getDevLanHost(): string | null {
   const candidates = [
@@ -135,7 +138,40 @@ function normalizeBanner(item: Partial<PromoBanner>): PromoBanner | null {
   };
 }
 
+function normalizeList(list: Partial<PromoBanner>[]): PromoBanner[] {
+  return list
+    .map(normalizeBanner)
+    .filter((item): item is PromoBanner => !!item && item.active)
+    .sort((a, b) => a.order - b.order);
+}
+
+async function readCachedBanners(): Promise<PromoBanner[]> {
+  try {
+    const raw = await AsyncStorage.getItem(BANNERS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeList(parsed);
+  } catch {
+    return [];
+  }
+}
+
+async function writeCachedBanners(banners: PromoBanner[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(BANNERS_CACHE_KEY, JSON.stringify(banners));
+  } catch {
+    // cache best-effort
+  }
+}
+
+/**
+ * Carrega banners com cache local.
+ * Imagens só baixam de novo quando a URL muda (upload novo no MinIO).
+ */
 export async function fetchPromoBanners(): Promise<PromoBanner[]> {
+  const cached = await readCachedBanners();
+
   try {
     const data = await apiRequest<BannersResponse | PromoBanner[]>(
       resolveBannersPath(),
@@ -151,13 +187,17 @@ export async function fetchPromoBanners(): Promise<PromoBanner[]> {
         ? data.banners
         : [];
 
-    return list
-      .map(normalizeBanner)
-      .filter((item): item is PromoBanner => !!item && item.active)
-      .sort((a, b) => a.order - b.order);
+    const fresh = normalizeList(list);
+    await writeCachedBanners(fresh);
+    return fresh;
   } catch {
-    return [];
+    return cached;
   }
+}
+
+/** Só o cache em disco (abertura rápida). */
+export async function getCachedPromoBanners(): Promise<PromoBanner[]> {
+  return readCachedBanners();
 }
 
 export const bannerGradients: Record<BannerTheme, [string, string, string]> = {

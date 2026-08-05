@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -76,6 +76,14 @@ export function PromoCarousel({ banners }: Props) {
 
     return () => clearInterval(timer);
   }, [items.length, paused, goTo]);
+
+  useEffect(() => {
+    const urls = items
+      .map((item) => item.imageUrl?.trim())
+      .filter((url): url is string => !!url);
+    if (!urls.length) return;
+    void Image.prefetch(urls, { cachePolicy: 'memory-disk' });
+  }, [items]);
 
   if (items.length === 0) return null;
 
@@ -149,9 +157,12 @@ export function PromoCarousel({ banners }: Props) {
             >
               <View style={styles.imageCard}>
                 <Image
-                  source={{ uri: item.imageUrl }}
+                  source={item.imageUrl}
                   style={styles.image}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={item.imageUrl}
+                  transition={160}
                 />
               </View>
             </Pressable>

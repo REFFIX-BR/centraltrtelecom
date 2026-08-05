@@ -16,7 +16,7 @@ import { PromoCarousel } from '@/src/components/PromoCarousel';
 import { QuickAction } from '@/src/components/QuickAction';
 import { useAccount } from '@/src/contexts/AccountContext';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { fetchPromoBanners, type PromoBanner } from '@/src/services/banners';
+import { fetchPromoBanners, getCachedPromoBanners, type PromoBanner } from '@/src/services/banners';
 import { formatConnectedTime } from '@/src/services/connection';
 import { contractNeedsAttention } from '@/src/services/contracts';
 import { pickNextInvoice } from '@/src/services/invoices';
@@ -44,9 +44,15 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let active = true;
+
+    getCachedPromoBanners().then((cached) => {
+      if (active && cached.length) setBanners(cached);
+    });
+
     fetchPromoBanners().then((items) => {
       if (active) setBanners(items);
     });
+
     return () => {
       active = false;
     };
