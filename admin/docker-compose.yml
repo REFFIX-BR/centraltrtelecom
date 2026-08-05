@@ -15,7 +15,8 @@ services:
       ADMIN_API_PORT: 4050
       ADMIN_PUBLIC_URL: https://centralapi.trtelecom.net
     volumes:
-      - centralapi_uploads:/app/server/uploads
+      # Fotos antigas do PM2 ficam no disco do host
+      - ./server/uploads:/app/server/uploads
       - centralapi_data:/app/server/data
     networks:
       - traefik-network
@@ -28,7 +29,6 @@ services:
       - "traefik.http.services.centralapi.loadbalancer.server.port=4050"
 
 volumes:
-  centralapi_uploads:
   centralapi_data:
 
 networks:

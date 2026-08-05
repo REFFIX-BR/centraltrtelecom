@@ -490,10 +490,6 @@ app.patch('/api/admin/mobile-plans/:id', requireAdmin, (req, res) => {
   return res.json({ plan });
 });
 
-app.get('/', (_req, res) => {
-  res.status(404).end();
-});
-
 app.get('/api/health/db', requireAdmin, async (_req, res) => {
   const database = await checkDatabase();
   res.status(database.ok ? 200 : 503).json({
@@ -501,6 +497,18 @@ app.get('/api/health/db', requireAdmin, async (_req, res) => {
     configured: database.configured,
   });
 });
+
+const distPath = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get(/^(?!\/api(?:\/|$)|\/webhook(?:\/|$)|\/uploads(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+} else {
+  app.get('/', (_req, res) => {
+    res.status(404).end();
+  });
+}
 
 app.listen(PORT, HOST, async () => {
   console.log(`API de propagandas TR Telecom em http://${HOST}:${PORT}`);
