@@ -16,6 +16,8 @@ export type PendingUpgrade = {
   currentPlanName: string;
   currentSpeedMbps: number;
   customerKey: string;
+  assinaturaUrl?: string | null;
+  contractId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

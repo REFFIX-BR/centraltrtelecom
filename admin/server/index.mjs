@@ -16,6 +16,11 @@ import {
 import { getMvnoStatus, lookupSubscriberByDocument } from './mvno.mjs';
 import { checkDatabase, dbConfigured } from './db.mjs';
 import { minioConfigured, minioStatus, uploadBannerImage } from './minio.mjs';
+import {
+  contractsConfigured,
+  contractsStatus,
+  createContractSolicitacao,
+} from './contractsProxy.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -498,6 +503,31 @@ app.patch('/api/admin/mobile-plans/:id', requireAdmin, (req, res) => {
   return res.json({ plan });
 });
 
+/** App: cria contrato de upgrade (proxy com API Key no servidor). */
+app.post('/api/contracts/solicitacao', async (req, res) => {
+  try {
+    if (!contractsConfigured()) {
+      return res.status(503).json({
+        error: 'Integração de contratos não configurada (CONTRACTS_API_KEY).',
+      });
+    }
+    const result = await createContractSolicitacao(req.body || {});
+    if (!result.assinaturaUrl) {
+      return res.status(502).json({
+        error: 'Contrato criado, mas o link de assinatura não veio.',
+        ...result,
+      });
+    }
+    return res.status(201).json(result);
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: error instanceof Error ? error.message : 'Falha ao criar contrato.',
+      details: error?.data || undefined,
+    });
+  }
+});
+
 app.get('/api/health/db', requireAdmin, async (_req, res) => {
   const database = await checkDatabase();
   res.status(database.ok ? 200 : 503).json({
@@ -533,6 +563,14 @@ app.listen(PORT, HOST, async () => {
     );
   } else {
     console.warn('MinIO: não configurado — upload local em /uploads');
+  }
+  const contracts = contractsStatus();
+  if (contracts.configured) {
+    console.log(
+      `Contratos: OK · modalidade upgrade=${contracts.modalidadeUpgrade}`
+    );
+  } else {
+    console.warn('Contratos: CONTRACTS_API_KEY não definida');
   }
   if (!dbConfigured) {
     console.warn('Postgres: não configurado (DATABASE_URL / DB_*)');

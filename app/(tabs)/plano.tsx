@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -34,6 +35,9 @@ import {
   type UpgradeOffer,
 } from '@/src/services/commercial';
 import { openUpgradeWhatsApp } from '@/src/services/whatsapp';
+import {
+  createUpgradeContract,
+} from '@/src/services/contracts';
 import {
   customerKeyFrom,
   daysLeftLabel,
@@ -203,6 +207,18 @@ export default function PlanScreen() {
   const [upgradeStep, setUpgradeStep] = useState<UpgradeProgressStep>(2);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [activatedOpen, setActivatedOpen] = useState(false);
+  const [creatingContract, setCreatingContract] = useState(false);
+  const [creatingMessage, setCreatingMessage] = useState(
+    'Estamos criando seu contrato...'
+  );
+  const [signInfo, setSignInfo] = useState<{
+    planName: string;
+    speedMbps: number;
+    price: number;
+    assinaturaUrl: string;
+    protocol: string;
+  } | null>(null);
+  const [openingSign, setOpeningSign] = useState(false);
 
   const mobilePlansCount = mobilePlans.length;
   const mobileFromPrice = useMemo(
@@ -350,61 +366,111 @@ export default function PlanScreen() {
   async function sendUpgrade(plan: UpgradeOffer) {
     if (!user || submitting) return;
     setSubmitting(true);
+    setConfirmPlan(null);
+    setCreatingContract(true);
+    setCreatingMessage('Estamos criando seu contrato...');
+
+    const messages = [
+      'Estamos criando seu contrato...',
+      'Preparando o termo de upgrade...',
+      'Gerando o link de assinatura...',
+    ];
+    let messageIndex = 0;
+    const messageTimer = setInterval(() => {
+      messageIndex = (messageIndex + 1) % messages.length;
+      setCreatingMessage(messages[messageIndex]);
+    }, 2200);
+
     try {
-      const result = await submitUpgradeSale({
+      const contract = await createUpgradeContract({
         user,
-        plan,
-        commercialPlanId: plan.commercialPlanId,
-        currentPlanName: planName,
-        currentSpeedMbps: speedMbps,
-        connectionAddressParts: connection?.addressParts,
+        planName: plan.displayName || plan.name,
+        speedMbps: plan.downloadMbps,
+        monthlyPrice: plan.monthlyPrice,
         connectionAddress: connection?.address,
+        connectionAddressParts: connection?.addressParts,
       });
 
-      setConfirmPlan(null);
+      setCreatingMessage('Registrando sua solicitação no comercial...');
+
+      let result: Awaited<ReturnType<typeof submitUpgradeSale>> | null = null;
+      try {
+        result = await submitUpgradeSale({
+          user,
+          plan,
+          commercialPlanId: plan.commercialPlanId,
+          currentPlanName: planName,
+          currentSpeedMbps: speedMbps,
+          connectionAddressParts: connection?.addressParts,
+          connectionAddress: connection?.address,
+        });
+      } catch {
+        // Contrato já criado — segue para assinatura mesmo se o comercial falhar.
+        result = null;
+      }
+
       const saved = await savePendingUpgrade({
         customerKey: customerKeyFrom(user.document, user.login),
         planName: plan.displayName || plan.name,
         speedMbps: plan.downloadMbps,
         price: plan.monthlyPrice,
-        saleId: result.saleId,
-        status: result.status || 'Aguardando Análise',
+        saleId: result?.saleId || null,
+        status: result?.status || 'Aguardando Análise',
         currentPlanName: planName,
         currentSpeedMbps: speedMbps,
+        assinaturaUrl: contract.assinaturaUrl,
+        contractId: contract.contractId,
       });
       setPendingUpgrade(saved);
       setUpgradeStep(classifySaleStatus(saved.status).activeStep);
-      setSuccessInfo({
-        planName: plan.displayName,
+
+      if (result) {
+        void openUpgradeWhatsApp({
+          customerName: user.name,
+          customerDocument: user.document,
+          customerPhone: user.phone,
+          customerLogin: user.login,
+          contractId: user.plan.contractId,
+          currentPlanName: planName,
+          currentSpeedMbps: speedMbps,
+          requestedPlanName: plan.displayName || plan.name,
+          requestedSpeedMbps: plan.downloadMbps,
+          monthlyPrice: plan.monthlyPrice,
+          saleId: result.saleId,
+          status: result.status,
+        });
+      }
+
+      setCreatingContract(false);
+      setSignInfo({
+        planName: plan.displayName || plan.name,
         speedMbps: plan.downloadMbps,
         price: plan.monthlyPrice,
-        saleId: result.saleId,
-        status: result.status,
-      });
-
-      void openUpgradeWhatsApp({
-        customerName: user.name,
-        customerDocument: user.document,
-        customerPhone: user.phone,
-        customerLogin: user.login,
-        contractId: user.plan.contractId,
-        currentPlanName: planName,
-        currentSpeedMbps: speedMbps,
-        requestedPlanName: plan.displayName || plan.name,
-        requestedSpeedMbps: plan.downloadMbps,
-        monthlyPrice: plan.monthlyPrice,
-        saleId: result.saleId,
-        status: result.status,
+        assinaturaUrl: contract.assinaturaUrl,
+        protocol: saved.protocol,
       });
     } catch (error) {
-      setConfirmPlan(null);
+      setCreatingContract(false);
       setErrorInfo(
         error instanceof Error
           ? error.message
           : 'Tente novamente em instantes ou fale com o suporte.'
       );
     } finally {
+      clearInterval(messageTimer);
       setSubmitting(false);
+    }
+  }
+
+  async function openSignContract() {
+    if (!signInfo?.assinaturaUrl || openingSign) return;
+    try {
+      setOpeningSign(true);
+      await WebBrowser.openBrowserAsync(signInfo.assinaturaUrl);
+    } catch {
+      setErrorInfo('Não foi possível abrir a assinatura. Tente novamente.');
+    } finally {
+      setOpeningSign(false);
     }
   }
 
@@ -880,8 +946,8 @@ export default function PlanScreen() {
             <Text style={styles.dialogEyebrow}>CONFIRMAR UPGRADE</Text>
             <Text style={styles.dialogTitle}>Quer mais velocidade?</Text>
             <Text style={styles.dialogText}>
-              Vamos enviar sua solicitação para o comercial analisar e concluir a
-              migração.
+              Vamos criar o contrato do upgrade e liberar a assinatura para você
+              concluir a solicitação.
             </Text>
 
             {confirmPlan ? (
@@ -922,6 +988,106 @@ export default function PlanScreen() {
                   <>
                     <Text style={styles.dialogPrimaryText}>Confirmar</Text>
                     <Ionicons name="checkmark" size={16} color={colors.white} />
+                  </>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={creatingContract}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.dialogBackdrop}>
+          <View style={styles.dialogCard}>
+            <View style={styles.dialogIconWrap}>
+              <LinearGradient
+                colors={[colors.primaryDark, colors.primaryLight]}
+                style={styles.dialogIcon}
+              >
+                <Ionicons name="document-text-outline" size={26} color={colors.white} />
+              </LinearGradient>
+            </View>
+            <Text style={styles.dialogEyebrow}>CONTRATO</Text>
+            <Text style={styles.dialogTitle}>Criando seu contrato</Text>
+            <Text style={styles.dialogText}>{creatingMessage}</Text>
+            <ActivityIndicator
+              size="large"
+              color={colors.primary}
+              style={{ marginVertical: spacing.md }}
+            />
+            <Text style={styles.progressMeta}>
+              Aguarde alguns segundos — não feche o app.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!signInfo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSignInfo(null)}
+      >
+        <View style={styles.dialogBackdrop}>
+          <View style={styles.dialogCard}>
+            <View style={[styles.dialogIconWrap, styles.dialogIconSuccess]}>
+              <Ionicons name="create-outline" size={36} color={colors.primary} />
+            </View>
+            <Text style={styles.dialogEyebrow}>ASSINAR CONTRATO</Text>
+            <Text style={styles.dialogTitle}>Contrato pronto</Text>
+            <Text style={styles.dialogText}>
+              Seu termo de upgrade foi gerado. Assine agora para o comercial
+              concluir a migração.
+            </Text>
+
+            {signInfo ? (
+              <View style={styles.dialogPlanBox}>
+                <Text style={styles.dialogPlanName}>{signInfo.planName}</Text>
+                <Text style={styles.dialogPlanMeta}>
+                  {signInfo.speedMbps} Mbps ·{' '}
+                  {formatCurrency(signInfo.price)}/mês
+                </Text>
+                <Text style={styles.dialogProtocol}>
+                  Protocolo{' '}
+                  <Text style={styles.dialogProtocolId}>{signInfo.protocol}</Text>
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.dialogActions}>
+              <Pressable
+                disabled={openingSign}
+                onPress={() => {
+                  setSignInfo(null);
+                  setPendingOpen(true);
+                }}
+                style={({ pressed }) => [
+                  styles.dialogGhostBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.dialogGhostText}>Depois</Text>
+              </Pressable>
+              <Pressable
+                disabled={openingSign || !signInfo}
+                onPress={() => void openSignContract()}
+                style={({ pressed }) => [
+                  styles.dialogPrimaryBtn,
+                  pressed && styles.pressed,
+                  openingSign && { opacity: 0.75 },
+                ]}
+              >
+                {openingSign ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <Text style={styles.dialogPrimaryText}>Assinar contrato</Text>
+                    <Ionicons name="open-outline" size={16} color={colors.white} />
                   </>
                 )}
               </Pressable>
@@ -1092,15 +1258,51 @@ export default function PlanScreen() {
               </Text>
             ) : null}
 
+            {pendingUpgrade?.assinaturaUrl ? (
+              <Pressable
+                onPress={() => {
+                  setPendingOpen(false);
+                  setSignInfo({
+                    planName: pendingUpgrade.planName,
+                    speedMbps: pendingUpgrade.speedMbps,
+                    price: pendingUpgrade.price,
+                    assinaturaUrl: pendingUpgrade.assinaturaUrl!,
+                    protocol: pendingUpgrade.protocol,
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.dialogPrimaryBtn,
+                  styles.dialogPrimaryFull,
+                  { marginBottom: spacing.sm },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.dialogPrimaryText}>Assinar contrato</Text>
+                <Ionicons name="create-outline" size={16} color={colors.white} />
+              </Pressable>
+            ) : null}
+
             <Pressable
               onPress={() => setPendingOpen(false)}
               style={({ pressed }) => [
                 styles.dialogPrimaryBtn,
                 styles.dialogPrimaryFull,
+                pendingUpgrade?.assinaturaUrl
+                  ? styles.dialogGhostBtn
+                  : null,
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.dialogPrimaryText}>Entendi</Text>
+              <Text
+                style={[
+                  styles.dialogPrimaryText,
+                  pendingUpgrade?.assinaturaUrl
+                    ? styles.dialogGhostText
+                    : null,
+                ]}
+              >
+                Entendi
+              </Text>
             </Pressable>
           </View>
         </View>

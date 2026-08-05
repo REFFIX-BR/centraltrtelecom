@@ -1,4 +1,6 @@
 import { ApiError, apiRequest } from '@/src/services/api';
+import { getBannersApiBase } from '@/src/services/banners';
+import { onlyDigits } from '@/src/utils/format';
 
 export type ContractStatus =
   | 'draft'
@@ -140,4 +142,149 @@ export function contractNeedsAttention(summary: ContractSummary | null): boolean
   if (!summary.found) return true;
   if (summary.pendingSignature > 0) return true;
   return summary.signed === 0 && summary.pendingReview === 0;
+}
+
+export type CreateContractResult = {
+  cpf: string | null;
+  assinaturaUrl: string;
+  contractId: string | null;
+  modalidade?: string;
+};
+
+function formatFullAddress(
+  user: {
+    address?: string;
+    addressParts?: {
+      endereco?: string;
+      numero?: string;
+      bairro?: string;
+      cidade?: string;
+      estado?: string;
+      cep?: string;
+      complemento?: string;
+    };
+  },
+  connectionAddress?: string | null,
+  connectionParts?: {
+    endereco?: string;
+    numero?: string;
+    bairro?: string;
+    cidade?: string;
+    estado?: string;
+    cep?: string;
+    complemento?: string;
+  } | null
+): string {
+  const parts = connectionParts || user.addressParts;
+  if (parts?.endereco) {
+    return [
+      parts.endereco,
+      parts.numero,
+      parts.bairro,
+      parts.cidade && parts.estado
+        ? `${parts.cidade} - ${parts.estado}`
+        : parts.cidade || parts.estado,
+      parts.cep,
+      parts.complemento,
+    ]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+  return (
+    String(connectionAddress || user.address || '').trim() || 'Não informado'
+  );
+}
+
+/**
+ * Cria contrato de upgrade via proxy da Central (API Key no servidor).
+ */
+export async function createUpgradeContract(input: {
+  user: {
+    name: string;
+    document: string;
+    phone: string;
+    email: string;
+    login: string;
+    birthDate?: string;
+    address?: string;
+    addressParts?: {
+      endereco?: string;
+      numero?: string;
+      bairro?: string;
+      cidade?: string;
+      estado?: string;
+      cep?: string;
+      complemento?: string;
+    };
+  };
+  planName: string;
+  speedMbps: number;
+  monthlyPrice: number;
+  connectionAddress?: string | null;
+  connectionAddressParts?: {
+    endereco?: string;
+    numero?: string;
+    bairro?: string;
+    cidade?: string;
+    estado?: string;
+    cep?: string;
+    complemento?: string;
+  } | null;
+}): Promise<CreateContractResult> {
+  const base = getBannersApiBase();
+  if (!base) {
+    throw new Error('API da Central não configurada (EXPO_PUBLIC_BANNERS_URL).');
+  }
+
+  const address = formatFullAddress(
+    input.user,
+    input.connectionAddress,
+    input.connectionAddressParts
+  );
+  const cep =
+    input.connectionAddressParts?.cep ||
+    input.user.addressParts?.cep ||
+    undefined;
+
+  const data = await apiRequest<Partial<CreateContractResult> & { error?: string }>(
+    `${base}/api/contracts/solicitacao`,
+    {
+      method: 'POST',
+      timeoutMs: 45000,
+      body: {
+        // Modalidade (adesão + comodato) é definida no servidor.
+        cpf: input.user.document,
+        nomeCompleto: input.user.name,
+        telefone: input.user.phone,
+        emailContato:
+          input.user.email ||
+          `${onlyDigits(input.user.document)}@cliente.trtelecom.net`,
+        enderecoCompleto: address,
+        clientLogin: input.user.login,
+        birthDate: input.user.birthDate || undefined,
+        clientCEP: cep,
+        observacoes: `Upgrade Central do Assinante · ${input.planName} · ${input.speedMbps} Mbps · R$ ${input.monthlyPrice}`,
+        plano: {
+          nome: input.planName,
+          velocidade: input.speedMbps,
+          valor: input.monthlyPrice,
+        },
+      },
+    }
+  );
+
+  const assinaturaUrl = String(data.assinaturaUrl || '').trim();
+  if (!assinaturaUrl) {
+    throw new Error(
+      data.error || 'Contrato criado sem link de assinatura. Fale com o suporte.'
+    );
+  }
+
+  return {
+    cpf: data.cpf || null,
+    assinaturaUrl,
+    contractId: data.contractId || null,
+    modalidade: data.modalidade,
+  };
 }
