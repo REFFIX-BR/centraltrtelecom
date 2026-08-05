@@ -114,7 +114,7 @@ export async function uploadImage(file: File) {
     throw new Error(data.error || 'Não foi possível enviar a imagem.');
   }
 
-  return data as { path: string; url: string };
+  return data as { path: string; url: string; key?: string; storage?: string };
 }
 
 export type OrderStatus =

@@ -247,12 +247,16 @@ export function App() {
     setError(null);
     try {
       const uploaded = await uploadImage(file);
-      const imageUrl = uploaded.path || uploaded.url;
+      const imageUrl = uploaded.url || uploaded.path;
       if (!imageUrl) {
         throw new Error('Upload concluído, mas a URL da imagem não veio.');
       }
       setForm((prev) => ({ ...prev, imageUrl }));
-      flash('Imagem enviada.');
+      flash(
+        uploaded.storage === 'minio'
+          ? 'Imagem enviada ao MinIO.'
+          : 'Imagem enviada.'
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha no upload');
     } finally {
@@ -806,7 +810,7 @@ export function App() {
                               <strong>
                                 {uploading ? 'Enviando...' : 'Arraste a imagem'}
                               </strong>
-                              <span>PNG, JPG, WEBP · até 5 MB · 2:1</span>
+                              <span>PNG, JPG, WEBP · até 5 MB · 2:1 · MinIO</span>
                             </div>
                           </>
                         )}

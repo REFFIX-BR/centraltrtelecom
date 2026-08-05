@@ -15,6 +15,7 @@ import {
 } from './mobilePlans.mjs';
 import { getMvnoStatus, lookupSubscriberByDocument } from './mvno.mjs';
 import { checkDatabase, dbConfigured } from './db.mjs';
+import { minioConfigured, minioStatus, uploadBannerImage } from './minio.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +41,7 @@ fs.mkdirSync(path.dirname(ORDERS_FILE), { recursive: true });
 if (!fs.existsSync(ORDERS_FILE)) {
   fs.writeFileSync(ORDERS_FILE, '[]', 'utf8');
 }
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
@@ -52,7 +53,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({
-  storage,
+  storage: minioConfigured ? multer.memoryStorage() : diskStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -284,7 +285,7 @@ app.get('/api/admin/banners', requireAdmin, (req, res) => {
 });
 
 app.post('/api/admin/upload', requireAdmin, (req, res) => {
-  upload.single('image')(req, res, (error) => {
+  upload.single('image')(req, res, async (error) => {
     if (error) {
       return res.status(400).json({
         error: error.message || 'Não foi possível enviar a imagem.',
@@ -294,11 +295,23 @@ app.post('/api/admin/upload', requireAdmin, (req, res) => {
       return res.status(400).json({ error: 'Selecione uma imagem.' });
     }
 
-    const relativePath = `/uploads/${req.file.filename}`;
-    return res.status(201).json({
-      path: relativePath,
-      url: absolutizeImageUrl(relativePath, req),
-    });
+    try {
+      if (minioConfigured) {
+        const uploaded = await uploadBannerImage(req.file);
+        return res.status(201).json(uploaded);
+      }
+
+      const relativePath = `/uploads/${req.file.filename}`;
+      return res.status(201).json({
+        path: relativePath,
+        url: absolutizeImageUrl(relativePath, req),
+        storage: 'local',
+      });
+    } catch (err) {
+      return res.status(500).json({
+        error: err instanceof Error ? err.message : 'Falha no upload MinIO.',
+      });
+    }
   });
 });
 
@@ -477,34 +490,29 @@ app.patch('/api/admin/mobile-plans/:id', requireAdmin, (req, res) => {
   return res.json({ plan });
 });
 
-app.get('/', async (_req, res) => {
-  const database = await checkDatabase();
-  res.json({
-    service: 'trtelecom-propagandas-api',
-    status: 'ok',
-    database,
-    endpoints: {
-      publicBanners: '/api/banners',
-      publicMobilePlans: '/api/mobile-plans',
-      webhookBanners: '/webhook/propagandas',
-      serviceOrders: 'POST /api/service-orders',
-      adminLogin: 'POST /api/admin/login',
-      adminOrders: 'GET /api/admin/service-orders',
-      adminMobilePlans: 'GET /api/admin/mobile-plans',
-      upload: 'POST /api/admin/upload',
-      healthDb: 'GET /api/health/db',
-    },
-  });
+app.get('/', (_req, res) => {
+  res.status(404).end();
 });
 
-app.get('/api/health/db', async (_req, res) => {
+app.get('/api/health/db', requireAdmin, async (_req, res) => {
   const database = await checkDatabase();
-  res.status(database.ok ? 200 : 503).json(database);
+  res.status(database.ok ? 200 : 503).json({
+    ok: database.ok,
+    configured: database.configured,
+  });
 });
 
 app.listen(PORT, HOST, async () => {
   console.log(`API de propagandas TR Telecom em http://${HOST}:${PORT}`);
   console.log(`Público: GET /api/banners e GET /webhook/propagandas`);
+  const storage = minioStatus();
+  if (storage.configured) {
+    console.log(
+      `MinIO: OK · bucket=${storage.bucket} · ${storage.publicBase}`
+    );
+  } else {
+    console.warn('MinIO: não configurado — upload local em /uploads');
+  }
   if (!dbConfigured) {
     console.warn('Postgres: não configurado (DATABASE_URL / DB_*)');
     return;
