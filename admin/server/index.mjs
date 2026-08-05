@@ -25,7 +25,7 @@ const ORDERS_FILE = path.join(__dirname, 'data', 'orders.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const PORT = Number(process.env.ADMIN_API_PORT || 4050);
 const HOST = process.env.ADMIN_API_HOST || '0.0.0.0';
-const ADMIN_TOKEN = process.env.ADMIN_API_TOKEN || 'trtelecom-admin-2026';
+const ADMIN_TOKEN = String(process.env.ADMIN_API_TOKEN || '').trim();
 const PUBLIC_BASE_URL = (process.env.ADMIN_PUBLIC_URL || '').replace(/\/$/, '');
 
 const ORDER_STATUSES = [
@@ -179,9 +179,12 @@ function sanitizeOrder(input = {}) {
 }
 
 function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) {
+    return res.status(503).json({ error: 'ADMIN_API_TOKEN não configurado no servidor.' });
+  }
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (token !== ADMIN_TOKEN) {
+  if (!token || token !== ADMIN_TOKEN) {
     return res.status(401).json({ error: 'Não autorizado' });
   }
   return next();
@@ -273,8 +276,13 @@ app.get('/webhook/propagandas', (req, res) => {
 });
 
 app.post('/api/admin/login', (req, res) => {
+  if (!ADMIN_TOKEN) {
+    return res.status(503).json({
+      error: 'ADMIN_API_TOKEN não configurado no .env do servidor.',
+    });
+  }
   const password = String(req.body?.password || '');
-  if (password !== ADMIN_TOKEN) {
+  if (!password || password !== ADMIN_TOKEN) {
     return res.status(401).json({ error: 'Senha inválida' });
   }
   return res.json({ token: ADMIN_TOKEN });
@@ -513,6 +521,11 @@ if (fs.existsSync(distPath)) {
 app.listen(PORT, HOST, async () => {
   console.log(`API de propagandas TR Telecom em http://${HOST}:${PORT}`);
   console.log(`Público: GET /api/banners e GET /webhook/propagandas`);
+  if (!ADMIN_TOKEN) {
+    console.warn('ADMIN_API_TOKEN: não definido no .env — login do painel bloqueado');
+  } else {
+    console.log('ADMIN_API_TOKEN: configurado via .env');
+  }
   const storage = minioStatus();
   if (storage.configured) {
     console.log(
