@@ -7,15 +7,16 @@ services:
         NODE_VERSION: 20.18.0
     command: npm run start
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       NODE_ENV: production
       ADMIN_API_HOST: 0.0.0.0
       ADMIN_API_PORT: 4050
       ADMIN_PUBLIC_URL: https://centralapi.trtelecom.net
     volumes:
-      # Fotos antigas do PM2 ficam no disco do host
+      # Garante que dotenv/MinIO leem o mesmo .env do host
+      - ./.env:/app/.env:ro
+      # Fotos antigas do PM2
       - ./server/uploads:/app/server/uploads
       - centralapi_data:/app/server/data
     networks:
