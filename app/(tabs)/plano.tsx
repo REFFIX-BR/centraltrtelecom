@@ -37,13 +37,16 @@ import { openUpgradeWhatsApp } from '@/src/services/whatsapp';
 import {
   customerKeyFrom,
   daysLeftLabel,
-  loadActivatedUpgrade,
-  loadPendingUpgrade,
   promotePendingToActivated,
   savePendingUpgrade,
   type ActivatedUpgrade,
   type PendingUpgrade,
 } from '@/src/services/pendingUpgrade';
+import {
+  classifySaleStatus,
+  type UpgradeProgressStep,
+} from '@/src/services/saleStatus';
+import { loadAndSyncUpgrade, syncPendingUpgradeFromComercial } from '@/src/services/syncUpgradeStatus';
 import { speedGainLabel } from '@/src/services/plans';
 import { colors, radius, shadows, spacing, tabScrollBottom } from '@/src/theme';
 import { formatCurrency } from '@/src/utils/format';
@@ -197,6 +200,7 @@ export default function PlanScreen() {
   );
   const [activatedUpgrade, setActivatedUpgrade] =
     useState<ActivatedUpgrade | null>(null);
+  const [upgradeStep, setUpgradeStep] = useState<UpgradeProgressStep>(2);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [activatedOpen, setActivatedOpen] = useState(false);
 
@@ -237,6 +241,7 @@ export default function PlanScreen() {
     if (!user) {
       setPendingUpgrade(null);
       setActivatedUpgrade(null);
+      setUpgradeStep(2);
       return;
     }
 
@@ -244,29 +249,69 @@ export default function PlanScreen() {
     let cancelled = false;
 
     void (async () => {
-      const [pending, activated] = await Promise.all([
-        loadPendingUpgrade(key),
-        loadActivatedUpgrade(key),
-      ]);
+      const synced = await loadAndSyncUpgrade({
+        documento: user.document,
+        customerKey: key,
+      });
       if (cancelled) return;
 
       // Velocidade já alcançou o pedido → promove para “ativado” por 3 dias.
-      if (pending && speedMbps > 0 && speedMbps >= pending.speedMbps) {
-        const next = await promotePendingToActivated(pending);
+      if (
+        synced.pending &&
+        speedMbps > 0 &&
+        speedMbps >= synced.pending.speedMbps
+      ) {
+        const next = await promotePendingToActivated(synced.pending);
         if (cancelled) return;
         setPendingUpgrade(null);
         setActivatedUpgrade(next);
+        setUpgradeStep(3);
         return;
       }
 
-      setPendingUpgrade(pending);
-      setActivatedUpgrade(activated);
+      setPendingUpgrade(synced.pending);
+      setActivatedUpgrade(synced.activated);
+      setUpgradeStep(synced.activeStep);
     })();
 
     return () => {
       cancelled = true;
     };
   }, [user, speedMbps]);
+
+  const refreshUpgradeStatus = useCallback(async () => {
+    if (!user) return;
+    const key = customerKeyFrom(user.document, user.login);
+    const pending = pendingUpgrade;
+    if (!pending) {
+      const synced = await loadAndSyncUpgrade({
+        documento: user.document,
+        customerKey: key,
+      });
+      setPendingUpgrade(synced.pending);
+      setActivatedUpgrade(synced.activated);
+      setUpgradeStep(synced.activeStep);
+      return;
+    }
+
+    try {
+      const synced = await syncPendingUpgradeFromComercial({
+        documento: user.document,
+        customerKey: key,
+        pending,
+      });
+      setPendingUpgrade(synced.pending);
+      setActivatedUpgrade(synced.activated);
+      setUpgradeStep(synced.activeStep);
+      if (!synced.pending && synced.activated) {
+        setPendingOpen(false);
+        setActivatedOpen(true);
+      }
+    } catch {
+      const local = classifySaleStatus(pending.status);
+      setUpgradeStep(local.activeStep);
+    }
+  }, [user, pendingUpgrade]);
 
   const nextInvoice = useMemo(
     () => (user ? pickNextInvoice(user.invoices) : null),
@@ -328,6 +373,7 @@ export default function PlanScreen() {
         currentSpeedMbps: speedMbps,
       });
       setPendingUpgrade(saved);
+      setUpgradeStep(classifySaleStatus(saved.status).activeStep);
       setSuccessInfo({
         planName: plan.displayName,
         speedMbps: plan.downloadMbps,
@@ -365,10 +411,23 @@ export default function PlanScreen() {
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      await Promise.all([reload(), loadHistory()]);
+      await Promise.all([reload(), loadHistory(), refreshUpgradeStatus()]);
     } finally {
       setRefreshing(false);
     }
+  }
+
+  function openPendingUpgrade() {
+    setPendingOpen(true);
+    void refreshUpgradeStatus();
+  }
+
+  function progressDotFor(step: UpgradeProgressStep) {
+    if (upgradeStep > step) return [styles.progressDot, styles.progressDotDone];
+    if (upgradeStep === step) {
+      return [styles.progressDot, styles.progressDotCurrent];
+    }
+    return [styles.progressDot];
   }
 
   return (
@@ -472,7 +531,7 @@ export default function PlanScreen() {
               pending
               title={`Upgrade para ${pendingUpgrade.speedMbps} Mbps pendente`}
               subtitle={`${pendingUpgrade.status} · toque para ver o andamento`}
-              onPress={() => setPendingOpen(true)}
+              onPress={openPendingUpgrade}
             />
           ) : activatedUpgrade ? (
             <UpgradePulseCue
@@ -973,7 +1032,7 @@ export default function PlanScreen() {
 
             <View style={styles.progressSteps}>
               <View style={styles.progressStep}>
-                <View style={[styles.progressDot, styles.progressDotDone]} />
+                <View style={progressDotFor(1)} />
                 <View style={styles.progressCopy}>
                   <Text style={styles.progressTitle}>Solicitação enviada</Text>
                   <Text style={styles.progressMeta}>
@@ -982,22 +1041,42 @@ export default function PlanScreen() {
                 </View>
               </View>
               <View style={styles.progressStep}>
-                <View style={[styles.progressDot, styles.progressDotCurrent]} />
+                <View style={progressDotFor(2)} />
                 <View style={styles.progressCopy}>
-                  <Text style={styles.progressTitle}>Em análise</Text>
+                  <Text
+                    style={[
+                      styles.progressTitle,
+                      upgradeStep < 2 && styles.progressMuted,
+                    ]}
+                  >
+                    Em análise
+                  </Text>
                   <Text style={styles.progressMeta}>
-                    Equipe comercial validando o upgrade
+                    {upgradeStep > 2
+                      ? 'Análise concluída pelo comercial'
+                      : upgradeStep === 2
+                        ? pendingUpgrade?.status ||
+                          'Equipe comercial validando o upgrade'
+                        : 'Aguardando análise'}
                   </Text>
                 </View>
               </View>
               <View style={styles.progressStep}>
-                <View style={styles.progressDot} />
+                <View style={progressDotFor(3)} />
                 <View style={styles.progressCopy}>
-                  <Text style={[styles.progressTitle, styles.progressMuted]}>
+                  <Text
+                    style={[
+                      styles.progressTitle,
+                      upgradeStep < 3 && styles.progressMuted,
+                    ]}
+                  >
                     Ativação
                   </Text>
                   <Text style={styles.progressMeta}>
-                    Velocidade liberada no seu plano
+                    {upgradeStep >= 3
+                      ? pendingUpgrade?.status ||
+                        'Aguardando liberação da velocidade'
+                      : 'Velocidade liberada no seu plano'}
                   </Text>
                 </View>
               </View>

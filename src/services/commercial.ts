@@ -11,7 +11,7 @@ const COMERCIAL_BASE =
 /** Código de indicação do vendedor no comercial (obrigatório no vendachat). */
 const fromEnv = process.env.EXPO_PUBLIC_COMERCIAL_VENDEDOR?.trim();
 const VENDEDOR_CODIGO =
-  fromEnv && fromEnv.toUpperCase() !== 'CENTRAL' ? fromEnv : 'TRDL2OLA';
+  fromEnv && fromEnv.toUpperCase() !== 'CENTRAL' ? fromEnv : 'TRJHCRMYIU';
 
 export type CommercialPlan = {
   id: number;
