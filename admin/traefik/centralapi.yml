@@ -1,0 +1,3 @@
+# Exemplo file-provider (não usado no stack atual).
+# A exposição pública fica no docker-compose.yml via labels Traefik,
+# no mesmo padrão de operacional.trtelecom.net.
