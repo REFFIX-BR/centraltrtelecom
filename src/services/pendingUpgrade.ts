@@ -18,9 +18,34 @@ export type PendingUpgrade = {
   customerKey: string;
   assinaturaUrl?: string | null;
   contractId?: string | null;
+  contractStatus?: string | null;
+  commercialPlanId?: number | null;
+  /** Já enviou a venda ao comercial após assinatura. */
+  comercialSubmitted?: boolean;
   createdAt: string;
   updatedAt: string;
 };
+
+/** Ainda precisa abrir o link de assinatura. */
+export function pendingNeedsSignature(pending: PendingUpgrade | null): boolean {
+  if (!pending?.assinaturaUrl?.trim()) return false;
+  if (pending.comercialSubmitted) return false;
+  const contractStatus = String(pending.contractStatus || '').toLowerCase();
+  if (contractStatus === 'signed' || contractStatus === 'pending_review') {
+    return false;
+  }
+  const status = String(pending.status || '').toLowerCase();
+  if (
+    status.includes('assinado') ||
+    status.includes('aguardando analise') ||
+    status.includes('aprovad') ||
+    status.includes('agendad') ||
+    status.includes('instal')
+  ) {
+    return false;
+  }
+  return true;
+}
 
 export type ActivatedUpgrade = {
   planName: string;

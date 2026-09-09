@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+/** Em produção o painel vive em https://trtelecom.net/central-admin-app */
+const PANEL_BASE = '/central-admin-app/';
+
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  base: mode === 'production' ? PANEL_BASE : '/',
   server: {
     port: 4173,
     proxy: {
@@ -19,4 +23,4 @@ export default defineConfig({
       '/uploads': 'http://localhost:4050',
     },
   },
-});
+}));

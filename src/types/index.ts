@@ -50,6 +50,7 @@ export type NotificationItem = {
   message: string;
   createdAt: string;
   read: boolean;
+  route?: string;
 };
 
 export type AddressParts = {

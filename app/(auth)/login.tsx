@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState } from 'react';
@@ -15,10 +16,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/Button';
+import { HirePlansModal } from '@/src/components/HirePlansModal';
 import { LoginPointModal } from '@/src/components/LoginPointModal';
 import { TextField } from '@/src/components/TextField';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { colors, spacing } from '@/src/theme';
+import { colors, radius, spacing } from '@/src/theme';
 import { formatDocument, isValidDocument } from '@/src/utils/format';
 
 export default function LoginScreen() {
@@ -35,6 +37,7 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<{ document?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
   const [selectingPoint, setSelectingPoint] = useState(false);
+  const [hireOpen, setHireOpen] = useState(false);
 
   async function handleLogin() {
     const nextErrors: typeof errors = {};
@@ -159,14 +162,41 @@ export default function LoginScreen() {
                 onPress={() => router.push('/(auth)/primeiro-acesso')}
               >
                 <Text style={styles.firstAccess}>Primeiro acesso</Text>
-                <Text style={styles.firstAccessHint}>Crie sua senha de acesso</Text>
+                <Text style={styles.firstAccessHint}>Não sabe a senha SAC?</Text>
               </Pressable>
             </View>
           </View>
 
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Contratar um plano de internet"
+            onPress={() => setHireOpen(true)}
+            style={({ pressed }) => [
+              styles.hireCard,
+              pressed && styles.hireCardPressed,
+            ]}
+          >
+            <View style={styles.hireIcon}>
+              <Ionicons name="cart-outline" size={22} color={colors.white} />
+            </View>
+            <View style={styles.hireCopy}>
+              <Text style={styles.hireTitle}>Ainda não é cliente?</Text>
+              <Text style={styles.hireSubtitle}>
+                Contrate internet fibra e fale no WhatsApp
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+
           <Text style={styles.footer}>TR Telecom · Conectando você ao que importa</Text>
         </ScrollView>
       </LinearGradient>
+
+      <HirePlansModal
+        visible={hireOpen}
+        document={document}
+        onClose={() => setHireOpen(false)}
+      />
 
       <LoginPointModal
         visible={!!pendingPointSelection}
@@ -282,6 +312,43 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     marginTop: 2,
+  },
+  hireCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  hireCardPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.985 }],
+  },
+  hireIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hireCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  hireTitle: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  hireSubtitle: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 12,
+    fontWeight: '600',
   },
   footer: {
     color: 'rgba(255,255,255,0.52)',

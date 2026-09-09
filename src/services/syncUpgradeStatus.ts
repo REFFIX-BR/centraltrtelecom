@@ -1,4 +1,8 @@
 import {
+  fetchContractsByDocument,
+  shouldDropUnsignedUpgradePending,
+} from '@/src/services/contracts';
+import {
   clearPendingUpgrade,
   loadActivatedUpgrade,
   loadPendingUpgrade,
@@ -96,6 +100,31 @@ export async function loadAndSyncUpgrade(input: {
   }
 
   try {
+    // Só consulta o comercial depois que a venda foi enviada (pós-assinatura).
+    if (!pending.comercialSubmitted) {
+      try {
+        const summary = await fetchContractsByDocument(input.documento);
+        if (shouldDropUnsignedUpgradePending(summary, pending)) {
+          await clearPendingUpgrade();
+          return {
+            pending: null,
+            activated: await loadActivatedUpgrade(input.customerKey),
+            statusLabel: null,
+            activeStep: 1,
+          };
+        }
+      } catch {
+        // falha na API de contratos — mantém o pendente local
+      }
+
+      return {
+        pending,
+        activated: await loadActivatedUpgrade(input.customerKey),
+        statusLabel: pending.status,
+        activeStep: 1,
+      };
+    }
+
     return await syncPendingUpgradeFromComercial({
       documento: input.documento,
       customerKey: input.customerKey,

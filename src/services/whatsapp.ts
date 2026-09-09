@@ -77,19 +77,11 @@ export function getUpgradeWhatsAppUrl(input: UpgradeWhatsAppPayload): string {
   return `https://wa.me/${phone}?text=${text}`;
 }
 
-/** Abre o WhatsApp com a mensagem do upgrade. Não falha o fluxo do app. */
+/** Desativado: upgrade não redireciona mais para WhatsApp. */
 export async function openUpgradeWhatsApp(
-  input: UpgradeWhatsAppPayload
+  _input: UpgradeWhatsAppPayload
 ): Promise<boolean> {
-  try {
-    const url = getUpgradeWhatsAppUrl(input);
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) return false;
-    await Linking.openURL(url);
-    return true;
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 export type MobileInterestWhatsAppPayload = {
@@ -203,6 +195,85 @@ export async function openMobileRechargeWhatsApp(
     const url = `https://wa.me/${phone}?text=${text}`;
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) return false;
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type HirePlanWhatsAppPayload = {
+  planName: string;
+  speedMbps: number;
+  monthlyPrice: number;
+  customerDocument?: string;
+};
+
+export function buildHirePlanWhatsAppMessage(
+  input: HirePlanWhatsAppPayload
+): string {
+  const lines = [
+    '*Quero contratar internet — Central do Assinante*',
+    '',
+    '*Plano selecionado:*',
+    `${input.planName} — ${
+      input.speedMbps >= 1000 ? '1 Gbps' : `${input.speedMbps} Mbps`
+    }`,
+    `*Valor:* ${formatCurrency(input.monthlyPrice)}/mês`,
+  ];
+
+  const digits = onlyDigits(input.customerDocument || '');
+  if (digits.length === 11 || digits.length === 14) {
+    lines.push('', `*Documento:* ${formatDocument(digits)}`);
+  }
+
+  lines.push(
+    '',
+    'Vim pela tela de login do app e gostaria de assinar este plano. Podem me atender?'
+  );
+
+  return lines.join('\n');
+}
+
+export async function openHirePlanWhatsApp(
+  input: HirePlanWhatsAppPayload
+): Promise<boolean> {
+  try {
+    const phone = resolveWhatsAppDigits();
+    const text = encodeURIComponent(buildHirePlanWhatsAppMessage(input));
+    const url = `https://wa.me/${phone}?text=${text}`;
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function buildSacPasswordWhatsAppMessage(document: string): string {
+  const digits = onlyDigits(document);
+  const lines = [
+    '*Primeiro acesso — Central do Assinante*',
+    '',
+  ];
+
+  if (digits.length === 11 || digits.length === 14) {
+    lines.push(`*Documento:* ${formatDocument(digits)}`, '');
+  }
+
+  lines.push(
+    'Gostaria de saber a minha *senha SAC* para acessar o aplicativo da Central do Assinante.'
+  );
+
+  return lines.join('\n');
+}
+
+export async function openSacPasswordWhatsApp(
+  document: string
+): Promise<boolean> {
+  try {
+    const phone = resolveWhatsAppDigits();
+    const text = encodeURIComponent(buildSacPasswordWhatsAppMessage(document));
+    const url = `https://wa.me/${phone}?text=${text}`;
     await Linking.openURL(url);
     return true;
   } catch {

@@ -78,9 +78,19 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       setContractError(null);
 
       try {
-        const statusPromise = checkPppoeStatus(subscriberLogin);
+        const statusPromise = checkPppoeStatus(subscriberLogin)
+          .then((value) => ({ value, error: null as string | null }))
+          .catch((statusError: unknown) => ({
+            value: null as ConnectionStatus | null,
+            error:
+              statusError instanceof Error
+                ? statusError.message
+                : 'Não foi possível verificar sua conexão.',
+          }));
 
-        const invoicesPromise = fetchAllInvoices(subscriberDocument);
+        const invoicesPromise = fetchAllInvoices(subscriberDocument).catch(
+          () => [] as Awaited<ReturnType<typeof fetchAllInvoices>>
+        );
 
         const contractPromise = fetchContractsByDocument(subscriberDocument)
           .then((value) => ({ value, error: null as string | null }))
@@ -95,12 +105,13 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
         const mobilePromise = Promise.all([
           fetchAppMobilePlans(),
           fetchMvnoSubscriber(subscriberDocument),
-        ]);
+        ]).catch(() => [[], null] as const);
 
         const upgradesPromise = (async (): Promise<UpgradeOffer[]> => {
           try {
-            const [status, catalog, commercialPlans] = await Promise.all([
-              statusPromise,
+            const statusResult = await statusPromise;
+            const status = statusResult.value;
+            const [catalog, commercialPlans] = await Promise.all([
               fetchCatalogPlans(),
               fetchCommercialPlans().catch(() => []),
             ]);
@@ -119,7 +130,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
           }
         })();
 
-        const [status, invoices, contractResult, mobileResult, nextUpgrades] =
+        const [statusResult, invoices, contractResult, mobileResult, nextUpgrades] =
           await Promise.all([
             statusPromise,
             invoicesPromise,
@@ -129,9 +140,11 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
           ]);
         if (requestId.current !== currentRequest) return;
 
+        const status = statusResult.value;
         const [plans, subscriber] = mobileResult;
 
         setConnection(status);
+        setError(statusResult.error);
         setContracts(contractResult.value);
         setContractError(contractResult.error);
         setMobilePlans(plans);

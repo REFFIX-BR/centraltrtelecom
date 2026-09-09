@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -20,21 +20,33 @@ import {
 } from '@/src/services/connectionHistory';
 import { colors, radius, spacing } from '@/src/theme';
 
+const PAGE_SIZE = 10;
+
 export default function ExtratoScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [sessions, setSessions] = useState<ConnectionSession[]>([]);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const visibleSessions = useMemo(
+    () => sessions.slice(0, visibleCount),
+    [sessions, visibleCount]
+  );
+  const hasMore = visibleCount < sessions.length;
 
   const load = useCallback(async () => {
     if (!user?.login) return;
     setError(null);
     try {
-      setSessions(await fetchConnectionHistory(user.login));
+      const next = await fetchConnectionHistory(user.login);
+      setSessions(next);
+      setVisibleCount(PAGE_SIZE);
     } catch (fetchError) {
       setSessions([]);
+      setVisibleCount(PAGE_SIZE);
       setError(
         fetchError instanceof Error
           ? fetchError.message
@@ -61,6 +73,11 @@ export default function ExtratoScreen() {
     setRefreshing(false);
   }
 
+  const loadMore = useCallback(() => {
+    if (!hasMore || loading) return;
+    setVisibleCount((count) => Math.min(count + PAGE_SIZE, sessions.length));
+  }, [hasMore, loading, sessions.length]);
+
   if (!user) return null;
 
   return (
@@ -70,41 +87,58 @@ export default function ExtratoScreen() {
         subtitle="Histórico das suas sessões"
       />
 
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + spacing.xxl },
-        ]}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[colors.accent]}
-            tintColor={colors.accent}
-          />
-        }
-      >
-        {loading ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={colors.accent} size="large" />
-            <Text style={styles.loadingText}>Buscando sessões...</Text>
-          </View>
-        ) : error ? (
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.accent} size="large" />
+          <Text style={styles.loadingText}>Buscando sessões...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.emptyWrap}>
           <EmptyState
             icon="cloud-offline-outline"
             title="Extrato indisponível"
             description={error}
           />
-        ) : sessions.length === 0 ? (
+        </View>
+      ) : sessions.length === 0 ? (
+        <View style={styles.emptyWrap}>
           <EmptyState
             icon="stats-chart-outline"
             title="Sem registros"
             description="Ainda não encontramos sessões de conexão para este login."
           />
-        ) : (
-          sessions.map((session, index) => (
+        </View>
+      ) : (
+        <FlatList
+          data={visibleSessions}
+          keyExtractor={(session, index) =>
+            `${session.startedAt}-${session.endedAt ?? 'online'}-${index}`
+          }
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + spacing.xxl },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.accent]}
+              tintColor={colors.accent}
+            />
+          }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            hasMore ? (
+              <Text style={styles.footerDone}>Role para ver mais sessões</Text>
+            ) : sessions.length > PAGE_SIZE ? (
+              <Text style={styles.footerDone}>
+                {sessions.length} sessões no extrato
+              </Text>
+            ) : null
+          }
+          renderItem={({ item: session, index }) => (
             <Card
-              key={`${session.startedAt}-${session.endedAt ?? 'online'}-${index}`}
               style={[
                 styles.sessionCard,
                 session.isOnline && styles.sessionOnline,
@@ -129,7 +163,9 @@ export default function ExtratoScreen() {
                 </View>
                 <View style={styles.sessionHeading}>
                   <Text style={styles.sessionTitle}>
-                    {session.isOnline ? 'Sessão atual' : `Sessão ${sessions.length - index}`}
+                    {session.isOnline
+                      ? 'Sessão atual'
+                      : `Sessão ${sessions.length - index}`}
                   </Text>
                   <Text style={styles.sessionDuration}>{session.duration}</Text>
                 </View>
@@ -162,15 +198,19 @@ export default function ExtratoScreen() {
                 </View>
                 <View style={styles.trafficDivider} />
                 <View style={styles.trafficItem}>
-                  <Ionicons name="arrow-down-outline" size={14} color={colors.success} />
+                  <Ionicons
+                    name="arrow-down-outline"
+                    size={14}
+                    color={colors.success}
+                  />
                   <Text style={styles.trafficLabel}>Download</Text>
                   <Text style={styles.trafficValue}>{session.download}</Text>
                 </View>
               </View>
             </Card>
-          ))
-        )}
-      </ScrollView>
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -181,10 +221,23 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  emptyWrap: {
+    flex: 1,
+    padding: spacing.lg,
+  },
   loading: {
+    flex: 1,
     paddingVertical: spacing.xxxl,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.md,
+  },
+  footerDone: {
+    textAlign: 'center',
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: spacing.md,
   },
   loadingText: {
     color: colors.textMuted,

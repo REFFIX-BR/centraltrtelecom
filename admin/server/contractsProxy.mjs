@@ -86,8 +86,23 @@ export async function createContractSolicitacao(input = {}) {
     clientCEP: input.clientCEP || undefined,
     ...(input.templateId ? { templateId: input.templateId } : {}),
     ...(input.observacoes ? { observacoes: input.observacoes } : {}),
-    ...(input.plano ? { plano: input.plano } : {}),
+    ...(input.plano
+      ? {
+          plano:
+            typeof input.plano === 'string'
+              ? input.plano
+              : String(
+                  input.plano.nome ||
+                    input.plano.name ||
+                    input.plano.plano ||
+                    ''
+                ).trim(),
+        }
+      : {}),
   };
+
+  // Remove plano vazio (API espera string).
+  if (!body.plano) delete body.plano;
 
   const response = await fetch(`${CONTRACTS_BASE}/api/contracts/solicitacao`, {
     method: 'POST',
@@ -108,13 +123,25 @@ export async function createContractSolicitacao(input = {}) {
   }
 
   if (!response.ok) {
+    const available =
+      Array.isArray(data?.availableTemplates) && data.availableTemplates.length
+        ? ` Modelos disponíveis: ${data.availableTemplates.join(', ')}.`
+        : '';
+    const detailsText =
+      data?.details && typeof data.details === 'object'
+        ? ` ${JSON.stringify(data.details)}`
+        : '';
     const message =
       data?.message ||
       data?.error ||
       (response.status === 404
-        ? 'Modalidade de contrato não encontrada. Confira CONTRACTS_MODALIDADE_UPGRADE.'
-        : `Falha ao criar contrato (HTTP ${response.status}).`);
-    const err = new Error(message);
+        ? `Modalidade de contrato não encontrada.${available}`
+        : `Falha ao criar contrato (HTTP ${response.status}).${detailsText || (text ? ` ${text.slice(0, 280)}` : '')}`);
+    const detailLine =
+      typeof data?.details === 'string' && data.details.trim()
+        ? ` (${data.details.trim()})`
+        : '';
+    const err = new Error(`${String(message).trim()}${detailLine}`);
     err.status = response.status;
     err.data = data;
     throw err;

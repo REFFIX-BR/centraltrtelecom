@@ -34,13 +34,21 @@ import {
   submitUpgradeSale,
   type UpgradeOffer,
 } from '@/src/services/commercial';
-import { openUpgradeWhatsApp } from '@/src/services/whatsapp';
 import {
   createUpgradeContract,
+  fetchContractsByDocument,
+  resolveUpgradeContract,
+  shouldDropUnsignedUpgradePending,
+  waitForContractSigned,
 } from '@/src/services/contracts';
+import type { CatalogPlan } from '@/src/services/plans';
 import {
+  clearActivatedUpgrade,
+  clearPendingUpgrade,
   customerKeyFrom,
   daysLeftLabel,
+  loadPendingUpgrade,
+  pendingNeedsSignature,
   promotePendingToActivated,
   savePendingUpgrade,
   type ActivatedUpgrade,
@@ -53,7 +61,7 @@ import {
 import { loadAndSyncUpgrade, syncPendingUpgradeFromComercial } from '@/src/services/syncUpgradeStatus';
 import { speedGainLabel } from '@/src/services/plans';
 import { colors, radius, shadows, spacing, tabScrollBottom } from '@/src/theme';
-import { formatCurrency } from '@/src/utils/format';
+import { formatCurrency, onlyDigits } from '@/src/utils/format';
 
 function planStatusLabel(status: string | undefined): string {
   const value = (status || '').trim().toUpperCase();
@@ -184,7 +192,8 @@ export default function PlanScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { connection, reload, mvno, mobilePlans, upgrades } = useAccount();
+  const { connection, reload, reloadContract, mvno, mobilePlans, upgrades } =
+    useAccount();
   const [refreshing, setRefreshing] = useState(false);
   const [historyPreview, setHistoryPreview] = useState<ConnectionSession[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -295,10 +304,54 @@ export default function PlanScreen() {
     };
   }, [user, speedMbps]);
 
+  const submitComercialAfterSignature = useCallback(
+    async (pending: PendingUpgrade) => {
+      if (!user || pending.comercialSubmitted || !pending.commercialPlanId) {
+        return pending;
+      }
+
+      const planStub = {
+        id: `upgrade-${pending.commercialPlanId}`,
+        code: pending.commercialPlanId,
+        name: pending.planName,
+        displayName: pending.planName,
+        downloadMbps: pending.speedMbps,
+        uploadMbps: 0,
+        monthlyPrice: pending.price,
+        isPj: onlyDigits(user.document).length === 14,
+        family: 'tr_fiber' as const,
+        rawName: pending.planName,
+      } satisfies CatalogPlan;
+
+      const result = await submitUpgradeSale({
+        user,
+        plan: planStub,
+        commercialPlanId: pending.commercialPlanId,
+        currentPlanName: pending.currentPlanName,
+        currentSpeedMbps: pending.currentSpeedMbps,
+        connectionAddressParts: connection?.addressParts || user.addressParts,
+        connectionAddress: connection?.address || user.address,
+      });
+
+      return savePendingUpgrade({
+        ...pending,
+        saleId: result.saleId,
+        status: result.status || 'Aguardando Análise',
+        comercialSubmitted: true,
+        contractStatus: pending.contractStatus || 'pending_review',
+        // Já assinado — não mostrar mais o botão de assinar.
+        assinaturaUrl: null,
+      });
+    },
+    [user, connection]
+  );
+
   const refreshUpgradeStatus = useCallback(async () => {
     if (!user) return;
     const key = customerKeyFrom(user.document, user.login);
-    const pending = pendingUpgrade;
+    let pending =
+      pendingUpgrade || (await loadPendingUpgrade(key));
+
     if (!pending) {
       const synced = await loadAndSyncUpgrade({
         documento: user.document,
@@ -311,6 +364,68 @@ export default function PlanScreen() {
     }
 
     try {
+      // Ainda sem comercial: confirma assinatura via GET e só então envia.
+      if (!pending.comercialSubmitted) {
+        const summary = await fetchContractsByDocument(user.document);
+
+        // Contrato excluído/cancelado na plataforma → libera novo upgrade.
+        if (shouldDropUnsignedUpgradePending(summary, pending)) {
+          await clearPendingUpgrade();
+          setPendingUpgrade(null);
+          setPendingOpen(false);
+          setUpgradeStep(1);
+          return;
+        }
+
+        const contract = resolveUpgradeContract(summary, {
+          contractId: pending.contractId,
+          assinaturaUrl: pending.assinaturaUrl,
+        });
+
+        if (contract && (contract.status === 'signed' || contract.status === 'pending_review')) {
+          pending = await savePendingUpgrade({
+            ...pending,
+            contractId: contract.contractId || pending.contractId,
+            contractStatus: contract.status,
+            status: 'Contrato assinado',
+            assinaturaUrl: null,
+          });
+          try {
+            pending = await submitComercialAfterSignature(pending);
+          } catch {
+            // mantém pendente assinado; usuário pode tentar de novo no refresh
+          }
+          setPendingUpgrade(pending);
+          setUpgradeStep(classifySaleStatus(pending.status).activeStep);
+          await reloadContract();
+          return;
+        }
+
+        // Já foi pro comercial (status antigo em cache) — esconde assinar.
+        if (
+          pending.comercialSubmitted ||
+          /aguardando analise|aprovad|agendad|instal/i.test(
+            String(pending.status || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+          )
+        ) {
+          pending = await savePendingUpgrade({
+            ...pending,
+            comercialSubmitted: true,
+            assinaturaUrl: null,
+          });
+        }
+
+        setPendingUpgrade(pending);
+        setUpgradeStep(
+          pending.comercialSubmitted
+            ? classifySaleStatus(pending.status).activeStep
+            : 1
+        );
+        return;
+      }
+
       const synced = await syncPendingUpgradeFromComercial({
         documento: user.document,
         customerKey: key,
@@ -327,7 +442,7 @@ export default function PlanScreen() {
       const local = classifySaleStatus(pending.status);
       setUpgradeStep(local.activeStep);
     }
-  }, [user, pendingUpgrade]);
+  }, [user, pendingUpgrade, connection, reloadContract, submitComercialAfterSignature]);
 
   const nextInvoice = useMemo(
     () => (user ? pickNextInvoice(user.invoices) : null),
@@ -372,7 +487,7 @@ export default function PlanScreen() {
 
     const messages = [
       'Estamos criando seu contrato...',
-      'Preparando o termo de upgrade...',
+      'Preparando adesão e comodato...',
       'Gerando o link de assinatura...',
     ];
     let messageIndex = 0;
@@ -382,31 +497,32 @@ export default function PlanScreen() {
     }, 2200);
 
     try {
+      // 1) Cria o contrato — comercial só depois da assinatura.
       const contract = await createUpgradeContract({
         user,
         planName: plan.displayName || plan.name,
         speedMbps: plan.downloadMbps,
         monthlyPrice: plan.monthlyPrice,
         connectionAddress: connection?.address,
-        connectionAddressParts: connection?.addressParts,
+        connectionAddressParts:
+          connection?.addressParts || user.addressParts || null,
       });
 
-      setCreatingMessage('Registrando sua solicitação no comercial...');
-
-      let result: Awaited<ReturnType<typeof submitUpgradeSale>> | null = null;
+      // 2) Busca o contractId via GET status-by-client.
+      let contractId = contract.contractId;
+      let contractStatus: string | null = 'pending';
       try {
-        result = await submitUpgradeSale({
-          user,
-          plan,
-          commercialPlanId: plan.commercialPlanId,
-          currentPlanName: planName,
-          currentSpeedMbps: speedMbps,
-          connectionAddressParts: connection?.addressParts,
-          connectionAddress: connection?.address,
+        const summary = await fetchContractsByDocument(user.document);
+        const found = resolveUpgradeContract(summary, {
+          contractId,
+          assinaturaUrl: contract.assinaturaUrl,
         });
+        if (found) {
+          contractId = found.contractId;
+          contractStatus = found.status;
+        }
       } catch {
-        // Contrato já criado — segue para assinatura mesmo se o comercial falhar.
-        result = null;
+        // segue com o que veio da criação
       }
 
       const saved = await savePendingUpgrade({
@@ -414,32 +530,18 @@ export default function PlanScreen() {
         planName: plan.displayName || plan.name,
         speedMbps: plan.downloadMbps,
         price: plan.monthlyPrice,
-        saleId: result?.saleId || null,
-        status: result?.status || 'Aguardando Análise',
+        saleId: null,
+        status: 'Aguardando assinatura',
         currentPlanName: planName,
         currentSpeedMbps: speedMbps,
         assinaturaUrl: contract.assinaturaUrl,
-        contractId: contract.contractId,
+        contractId,
+        contractStatus,
+        commercialPlanId: plan.commercialPlanId,
+        comercialSubmitted: false,
       });
       setPendingUpgrade(saved);
-      setUpgradeStep(classifySaleStatus(saved.status).activeStep);
-
-      if (result) {
-        void openUpgradeWhatsApp({
-          customerName: user.name,
-          customerDocument: user.document,
-          customerPhone: user.phone,
-          customerLogin: user.login,
-          contractId: user.plan.contractId,
-          currentPlanName: planName,
-          currentSpeedMbps: speedMbps,
-          requestedPlanName: plan.displayName || plan.name,
-          requestedSpeedMbps: plan.downloadMbps,
-          monthlyPrice: plan.monthlyPrice,
-          saleId: result.saleId,
-          status: result.status,
-        });
-      }
+      setUpgradeStep(1);
 
       setCreatingContract(false);
       setSignInfo({
@@ -463,11 +565,96 @@ export default function PlanScreen() {
   }
 
   async function openSignContract() {
-    if (!signInfo?.assinaturaUrl || openingSign) return;
+    if (!signInfo?.assinaturaUrl || openingSign || !user) return;
     try {
       setOpeningSign(true);
       await WebBrowser.openBrowserAsync(signInfo.assinaturaUrl);
+
+      setSignInfo(null);
+      setCreatingContract(true);
+      setCreatingMessage('Confirmando sua assinatura...');
+
+      const pending =
+        pendingUpgrade ||
+        (await loadPendingUpgrade(customerKeyFrom(user.document, user.login)));
+
+      if (!pending) {
+        setCreatingContract(false);
+        setPendingOpen(true);
+        return;
+      }
+
+      // 3) GET contrato até ficar assinado (pending_review | signed).
+      const signed = await waitForContractSigned(user.document, {
+        contractId: pending.contractId,
+        assinaturaUrl: pending.assinaturaUrl,
+        createdAfter: pending.createdAt,
+        attempts: 12,
+        delayMs: 2000,
+      });
+
+      if (!signed) {
+        try {
+          const summary = await fetchContractsByDocument(user.document);
+          if (shouldDropUnsignedUpgradePending(summary, pending)) {
+            await clearPendingUpgrade();
+            setPendingUpgrade(null);
+            setCreatingContract(false);
+            setPendingOpen(false);
+            setErrorInfo(
+              'O contrato foi cancelado ou removido. Você pode solicitar o upgrade novamente.'
+            );
+            return;
+          }
+        } catch {
+          // segue com pendente de assinatura
+        }
+
+        const updated = await savePendingUpgrade({
+          ...pending,
+          status: 'Aguardando assinatura',
+        });
+        setPendingUpgrade(updated);
+        setCreatingContract(false);
+        setPendingOpen(true);
+        setErrorInfo(
+          'Ainda não identificamos a assinatura. Se já assinou, aguarde alguns segundos e abra o andamento do upgrade novamente.'
+        );
+        return;
+      }
+
+      setCreatingMessage('Enviando para o comercial...');
+
+      let next = await savePendingUpgrade({
+        ...pending,
+        contractId: signed.contractId || pending.contractId,
+        contractStatus: signed.status,
+        status: 'Contrato assinado',
+        assinaturaUrl: null,
+      });
+
+      // 4) Só agora registra no comercial.
+      try {
+        next = await submitComercialAfterSignature(next);
+      } catch (error) {
+        setPendingUpgrade(next);
+        setCreatingContract(false);
+        setPendingOpen(true);
+        setErrorInfo(
+          error instanceof Error
+            ? `Contrato assinado, mas falhou o envio ao comercial: ${error.message}`
+            : 'Contrato assinado, mas falhou o envio ao comercial.'
+        );
+        return;
+      }
+
+      setPendingUpgrade(next);
+      setUpgradeStep(classifySaleStatus(next.status).activeStep);
+      await reloadContract();
+      setCreatingContract(false);
+      setPendingOpen(true);
     } catch {
+      setCreatingContract(false);
       setErrorInfo('Não foi possível abrir a assinatura. Tente novamente.');
     } finally {
       setOpeningSign(false);
@@ -946,8 +1133,8 @@ export default function PlanScreen() {
             <Text style={styles.dialogEyebrow}>CONFIRMAR UPGRADE</Text>
             <Text style={styles.dialogTitle}>Quer mais velocidade?</Text>
             <Text style={styles.dialogText}>
-              Vamos criar o contrato do upgrade e liberar a assinatura para você
-              concluir a solicitação.
+              Vamos criar o contrato (adesão + comodato). Depois de assinar,
+              enviamos automaticamente para o comercial concluir a migração.
             </Text>
 
             {confirmPlan ? (
@@ -1041,8 +1228,8 @@ export default function PlanScreen() {
             <Text style={styles.dialogEyebrow}>ASSINAR CONTRATO</Text>
             <Text style={styles.dialogTitle}>Contrato pronto</Text>
             <Text style={styles.dialogText}>
-              Seu termo de upgrade foi gerado. Assine agora para o comercial
-              concluir a migração.
+              Seu termo de upgrade foi gerado. Assine agora — assim que
+              confirmarmos a assinatura, enviamos ao comercial.
             </Text>
 
             {signInfo ? (
@@ -1202,7 +1389,7 @@ export default function PlanScreen() {
                 <View style={styles.progressCopy}>
                   <Text style={styles.progressTitle}>Solicitação enviada</Text>
                   <Text style={styles.progressMeta}>
-                    Comercial e WhatsApp notificados
+                    Comercial notificado
                   </Text>
                 </View>
               </View>
@@ -1258,16 +1445,16 @@ export default function PlanScreen() {
               </Text>
             ) : null}
 
-            {pendingUpgrade?.assinaturaUrl ? (
+            {pendingNeedsSignature(pendingUpgrade) ? (
               <Pressable
                 onPress={() => {
                   setPendingOpen(false);
                   setSignInfo({
-                    planName: pendingUpgrade.planName,
-                    speedMbps: pendingUpgrade.speedMbps,
-                    price: pendingUpgrade.price,
-                    assinaturaUrl: pendingUpgrade.assinaturaUrl!,
-                    protocol: pendingUpgrade.protocol,
+                    planName: pendingUpgrade!.planName,
+                    speedMbps: pendingUpgrade!.speedMbps,
+                    price: pendingUpgrade!.price,
+                    assinaturaUrl: pendingUpgrade!.assinaturaUrl!,
+                    protocol: pendingUpgrade!.protocol,
                   });
                 }}
                 style={({ pressed }) => [
@@ -1287,7 +1474,7 @@ export default function PlanScreen() {
               style={({ pressed }) => [
                 styles.dialogPrimaryBtn,
                 styles.dialogPrimaryFull,
-                pendingUpgrade?.assinaturaUrl
+                pendingNeedsSignature(pendingUpgrade)
                   ? styles.dialogGhostBtn
                   : null,
                 pressed && styles.pressed,
@@ -1296,7 +1483,7 @@ export default function PlanScreen() {
               <Text
                 style={[
                   styles.dialogPrimaryText,
-                  pendingUpgrade?.assinaturaUrl
+                  pendingNeedsSignature(pendingUpgrade)
                     ? styles.dialogGhostText
                     : null,
                 ]}
@@ -1397,7 +1584,17 @@ export default function PlanScreen() {
             ) : null}
 
             <Pressable
-              onPress={() => setActivatedOpen(false)}
+              onPress={() => {
+                void (async () => {
+                  await Promise.all([
+                    clearActivatedUpgrade(),
+                    clearPendingUpgrade(),
+                  ]);
+                  setActivatedUpgrade(null);
+                  setPendingUpgrade(null);
+                  setActivatedOpen(false);
+                })();
+              }}
               style={({ pressed }) => [
                 styles.dialogPrimaryBtn,
                 styles.dialogPrimaryFull,

@@ -207,7 +207,7 @@ export function parseAddressString(raw?: string | null): AddressParts | null {
   };
 }
 
-function resolveAddressParts(
+export function resolveAddressParts(
   user: Subscriber,
   connectionAddressParts?: AddressParts | null,
   connectionAddress?: string | null
@@ -236,6 +236,64 @@ function resolveAddressParts(
   }
 
   return null;
+}
+
+/**
+ * Abre ticket no webhook após concluir a solicitação de upgrade
+ * (contrato assinado + venda no comercial).
+ * Não deve bloquear o assinante se o webhook falhar.
+ */
+export async function openUpgradeTicket(input: {
+  user: Subscriber;
+  planName: string;
+  speedMbps: number;
+  monthlyPrice: number;
+  currentPlanName: string;
+  currentSpeedMbps: number;
+  saleId?: string | null;
+  protocol?: string | null;
+}): Promise<boolean> {
+  const documento = onlyDigits(input.user.document);
+  if (documento.length < 11) return false;
+
+  const fromPlan = input.currentPlanName?.trim() || 'plano atual';
+  const fromSpeed =
+    input.currentSpeedMbps > 0 ? ` (${input.currentSpeedMbps} Mbps)` : '';
+  const toPlan = input.planName?.trim() || 'plano solicitado';
+  const priceLabel = Number.isFinite(input.monthlyPrice)
+    ? ` · R$ ${Number(input.monthlyPrice).toFixed(2).replace('.', ',')}/mês`
+    : '';
+  const protocol =
+    String(input.protocol || input.saleId || '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 12)
+      .toUpperCase() || null;
+
+  const resumo = [
+    `Cliente ${input.user.name} (login ${input.user.login}) solicitou upgrade pela Central do Assinante.`,
+    `De ${fromPlan}${fromSpeed} para ${toPlan} (${input.speedMbps} Mbps${priceLabel}).`,
+    'Contrato assinado no app; aguardando análise do comercial.',
+    protocol ? `Protocolo/venda: ${protocol}.` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  try {
+    await apiRequest('/webhook/abrir_ticket', {
+      method: 'POST',
+      timeoutMs: 20000,
+      body: {
+        documento,
+        resumo,
+        setor: 'COMERCIAL',
+        motivo: 'UPGRADE',
+        finalizar: 'S',
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function submitUpgradeSale(input: {
@@ -346,6 +404,17 @@ export async function submitUpgradeSale(input: {
       currentSpeedMbps,
       saleId: result.saleId,
       status: result.status,
+    });
+
+    // Abre ticket no SAC/comercial ao concluir a solicitação.
+    void openUpgradeTicket({
+      user,
+      planName: plan.displayName || plan.name,
+      speedMbps: plan.downloadMbps,
+      monthlyPrice: plan.monthlyPrice,
+      currentPlanName,
+      currentSpeedMbps,
+      saleId: result.saleId,
     });
 
     return result;

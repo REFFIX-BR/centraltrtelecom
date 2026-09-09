@@ -123,8 +123,8 @@ export async function fetchPaidBoletos(documento: string): Promise<Invoice[]> {
 
 export async function fetchAllInvoices(documento: string): Promise<Invoice[]> {
   const [open, paid] = await Promise.all([
-    fetchOpenBoletos(documento),
-    fetchPaidBoletos(documento),
+    fetchOpenBoletos(documento).catch(() => [] as Invoice[]),
+    fetchPaidBoletos(documento).catch(() => [] as Invoice[]),
   ]);
 
   const byId = new Map<string, Invoice>();

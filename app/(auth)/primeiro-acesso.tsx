@@ -1,9 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,90 +15,91 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/Button';
 import { Card } from '@/src/components/Card';
+import { LoginPointModal } from '@/src/components/LoginPointModal';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { TextField } from '@/src/components/TextField';
 import { useAuth } from '@/src/contexts/AuthContext';
-import { colors, spacing } from '@/src/theme';
-import type { Subscriber } from '@/src/types';
+import { openSacPasswordWhatsApp } from '@/src/services/whatsapp';
+import { colors, radius, spacing } from '@/src/theme';
 import { formatDocument, isValidDocument } from '@/src/utils/format';
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2;
 
 export default function FirstAccessScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { findProspect, registerFirstAccess } = useAuth();
+  const { login, pendingPointSelection, selectLoginPoint, cancelPointSelection } =
+    useAuth();
 
   const [step, setStep] = useState<Step>(1);
   const [document, setDocument] = useState('');
-  const [prospect, setProspect] = useState<Subscriber | null>(null);
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectingPoint, setSelectingPoint] = useState(false);
+  const [askingPassword, setAskingPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  async function handleIdentify() {
+  function handleIdentify() {
     if (!isValidDocument(document)) {
       setErrors({ document: 'Informe um CPF ou CNPJ válido' });
       return;
     }
     setErrors({});
+    setStep(2);
+  }
+
+  async function handleLoginWithSac() {
+    if (password.trim().length < 3) {
+      setErrors({ password: 'Informe a senha SAC' });
+      return;
+    }
+    setErrors({});
+
     try {
       setLoading(true);
-      const found = await findProspect(document);
-      if (!found) {
-        Alert.alert('Não encontrado', 'Não localizamos um contrato com este documento.');
-        return;
-      }
-      setProspect(found);
-      setEmail(found.email || '');
-      setPhone(found.phone || '');
-      setStep(2);
+      await login(document, password);
     } catch (error) {
       Alert.alert(
-        'Consulta indisponível',
+        'Não foi possível entrar',
         error instanceof Error
           ? error.message
-          : 'Não foi possível consultar o contrato.'
+          : 'Confira a senha SAC ou peça a sua no WhatsApp.'
       );
     } finally {
       setLoading(false);
     }
   }
 
-  function handleConfirmData() {
-    const nextErrors: Record<string, string> = {};
-    if (!email.includes('@')) nextErrors.email = 'Informe um e-mail válido';
-    if (phone.replace(/\D/g, '').length < 10) nextErrors.phone = 'Informe um telefone válido';
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) return;
-    setStep(3);
-  }
-
-  async function handleCreatePassword() {
-    const nextErrors: Record<string, string> = {};
-    if (password.length < 6) nextErrors.password = 'Mínimo de 6 caracteres';
-    if (password !== confirmPassword) nextErrors.confirmPassword = 'As senhas não coincidem';
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length) return;
-
+  async function handleSelectPoint(selectedLogin: string) {
     try {
-      setLoading(true);
-      await registerFirstAccess({
-        document,
-        email,
-        phone,
-        password,
-      });
+      setSelectingPoint(true);
+      await selectLoginPoint(selectedLogin);
     } catch (error) {
       Alert.alert(
-        'Erro',
-        error instanceof Error ? error.message : 'Não foi possível concluir o cadastro.'
+        'Não foi possível continuar',
+        error instanceof Error ? error.message : 'Tente novamente.'
       );
     } finally {
-      setLoading(false);
+      setSelectingPoint(false);
+    }
+  }
+
+  async function handleAskSacPassword() {
+    if (!isValidDocument(document)) {
+      setErrors({ document: 'Informe um CPF ou CNPJ válido' });
+      setStep(1);
+      return;
+    }
+
+    setAskingPassword(true);
+    const opened = await openSacPasswordWhatsApp(document);
+    setAskingPassword(false);
+
+    if (!opened) {
+      Alert.alert(
+        'WhatsApp indisponível',
+        'Não foi possível abrir o WhatsApp. Tente novamente.'
+      );
     }
   }
 
@@ -104,7 +107,7 @@ export default function FirstAccessScreen() {
     <View style={styles.flex}>
       <ScreenHeader
         title="Primeiro acesso"
-        subtitle={`Etapa ${step} de 3`}
+        subtitle={step === 1 ? 'Identifique seu contrato' : 'Use a senha SAC'}
         showBack
       />
       <KeyboardAvoidingView
@@ -120,9 +123,9 @@ export default function FirstAccessScreen() {
         >
           {step === 1 ? (
             <Card style={styles.card}>
-              <Text style={styles.title}>Identifique seu contrato</Text>
+              <Text style={styles.title}>Qual é o seu CPF?</Text>
               <Text style={styles.text}>
-                Digite o CPF ou CNPJ cadastrado na TR Telecom para iniciar.
+                Digite o CPF ou CNPJ do titular do contrato para continuar.
               </Text>
               <TextField
                 label="CPF ou CNPJ"
@@ -132,34 +135,29 @@ export default function FirstAccessScreen() {
                 placeholder="000.000.000-00"
                 error={errors.document}
                 maxLength={18}
+                returnKeyType="next"
+                onSubmitEditing={handleIdentify}
               />
-              <Button title="Continuar" onPress={handleIdentify} loading={loading} />
+              <Button title="Continuar" onPress={handleIdentify} />
             </Card>
           ) : null}
 
-          {step === 2 && prospect ? (
+          {step === 2 ? (
             <Card style={styles.card}>
-              <Text style={styles.title}>Confirme seus dados</Text>
-              <View style={styles.infoBox}>
-                <Text style={styles.infoLabel}>Titular</Text>
-                <Text style={styles.infoValue}>{prospect.name}</Text>
-                <Text style={styles.infoLabel}>Plano</Text>
-                <Text style={styles.infoValue}>{prospect.plan.name}</Text>
-              </View>
+              <Text style={styles.title}>Informe a senha SAC</Text>
+              <Text style={styles.text}>
+                É a mesma senha do atendimento e da área do assinante. Documento:{' '}
+                {formatDocument(document)}
+              </Text>
               <TextField
-                label="E-mail"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                error={errors.email}
-              />
-              <TextField
-                label="Telefone"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                error={errors.phone}
+                label="Senha SAC"
+                value={password}
+                onChangeText={setPassword}
+                isPassword
+                placeholder="Digite sua senha SAC"
+                error={errors.password}
+                returnKeyType="done"
+                onSubmitEditing={() => void handleLoginWithSac()}
               />
               <View style={styles.row}>
                 <Button
@@ -168,51 +166,51 @@ export default function FirstAccessScreen() {
                   onPress={() => setStep(1)}
                   style={styles.half}
                 />
-                <Button title="Continuar" onPress={handleConfirmData} style={styles.half} />
-              </View>
-            </Card>
-          ) : null}
-
-          {step === 3 ? (
-            <Card style={styles.card}>
-              <Text style={styles.title}>Crie sua senha</Text>
-              <Text style={styles.text}>
-                Essa senha será usada para acessar a Central do Assinante.
-              </Text>
-              <TextField
-                label="Senha"
-                value={password}
-                onChangeText={setPassword}
-                isPassword
-                error={errors.password}
-              />
-              <TextField
-                label="Confirmar senha"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                isPassword
-                error={errors.confirmPassword}
-              />
-              <View style={styles.row}>
                 <Button
-                  title="Voltar"
-                  variant="secondary"
-                  onPress={() => setStep(2)}
-                  style={styles.half}
-                />
-                <Button
-                  title="Concluir"
-                  onPress={handleCreatePassword}
+                  title="Entrar"
+                  onPress={() => void handleLoginWithSac()}
                   loading={loading}
                   style={styles.half}
                 />
               </View>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void handleAskSacPassword()}
+                disabled={askingPassword}
+                style={({ pressed }) => [
+                  styles.whatsappBtn,
+                  pressed && styles.whatsappPressed,
+                ]}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color={colors.white} />
+                <View style={styles.whatsappCopy}>
+                  <Text style={styles.whatsappTitle}>
+                    Gostaria de saber a minha senha SAC
+                  </Text>
+                  <Text style={styles.whatsappHint}>
+                    Pedimos para você no WhatsApp
+                  </Text>
+                </View>
+              </Pressable>
             </Card>
           ) : null}
 
-          <Button title="Já tenho acesso" variant="ghost" onPress={() => router.back()} />
+          <Button
+            title="Já tenho acesso"
+            variant="ghost"
+            onPress={() => router.back()}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <LoginPointModal
+        visible={!!pendingPointSelection}
+        options={pendingPointSelection?.options ?? []}
+        loading={selectingPoint}
+        onSelect={handleSelectPoint}
+        onCancel={cancelPointSelection}
+      />
     </View>
   );
 }
@@ -236,27 +234,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  infoBox: {
-    backgroundColor: colors.accentSoft,
-    borderRadius: 12,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
-  infoLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: spacing.sm,
-  },
-  infoValue: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
   row: {
     flexDirection: 'row',
     gap: spacing.md,
   },
   half: {
     flex: 1,
+  },
+  whatsappBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.success,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  whatsappPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.985 }],
+  },
+  whatsappCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  whatsappTitle: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  whatsappHint: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

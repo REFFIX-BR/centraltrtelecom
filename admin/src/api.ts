@@ -22,6 +22,16 @@ export type BannerInput = Omit<Banner, 'id' | 'createdAt' | 'updatedAt'> & {
 
 const TOKEN_KEY = 'trtelecom_admin_token';
 
+/** Em produção (rota /central-admin-app) a API continua em centralapi. */
+const API_BASE = String(import.meta.env.VITE_ADMIN_API_URL || '').replace(
+  /\/$/,
+  ''
+);
+
+function apiUrl(path: string) {
+  return `${API_BASE}${path}`;
+}
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -36,7 +46,7 @@ export function clearToken() {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers: {
       Accept: 'application/json',
@@ -101,7 +111,7 @@ export async function uploadImage(file: File) {
   const body = new FormData();
   body.append('image', file);
 
-  const response = await fetch('/api/admin/upload', {
+  const response = await fetch(apiUrl('/api/admin/upload'), {
     method: 'POST',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -234,4 +244,56 @@ export async function updateMobilePlan(
     }
   );
   return data.plan;
+}
+
+export type PushToken = {
+  token: string;
+  document: string;
+  login: string;
+  name: string;
+  platform: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PushHistoryItem = {
+  id: string;
+  title: string;
+  body: string;
+  route: string;
+  sendToAll: boolean;
+  document: string;
+  login: string;
+  recipients: number;
+  delivered: number;
+  errors: string[];
+  createdAt: string;
+};
+
+export async function listPushTokens() {
+  const data = await request<{ tokens: PushToken[] }>('/api/admin/push/tokens');
+  return data.tokens;
+}
+
+export async function listPushHistory() {
+  const data = await request<{ history: PushHistoryItem[] }>(
+    '/api/admin/push/history'
+  );
+  return data.history;
+}
+
+export async function sendPush(input: {
+  title: string;
+  body: string;
+  route?: string;
+  document?: string;
+  login?: string;
+  token?: string;
+  sendToAll?: boolean;
+}) {
+  const data = await request<{ result: PushHistoryItem }>('/api/admin/push/send', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return data.result;
 }

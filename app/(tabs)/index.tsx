@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DigitalServiceCard } from '@/src/components/DigitalServiceCard';
 import { PromoCarousel } from '@/src/components/PromoCarousel';
 import { QuickAction } from '@/src/components/QuickAction';
 import { useAccount } from '@/src/contexts/AccountContext';
@@ -22,6 +23,33 @@ import { contractNeedsAttention } from '@/src/services/contracts';
 import { pickNextInvoice } from '@/src/services/invoices';
 import { colors, radius, spacing, tabScrollBottom } from '@/src/theme';
 import { formatCurrency, formatShortDate } from '@/src/utils/format';
+
+const DIGITAL_SERVICES = [
+  {
+    id: 'telemedicina',
+    title: 'Telemedicina',
+    url: 'https://play.google.com/store/apps/details?id=com.mediquo.main&hl=pt_BR',
+    icon: require('../../assets/images/digital/telemedicina.png'),
+  },
+  {
+    id: 'app-tv',
+    title: 'App TV',
+    url: 'https://play.google.com/store/apps/details?id=com.tr2telecomapp.unitv&hl=pt_BR',
+    icon: require('../../assets/images/digital/app-tv.png'),
+  },
+  {
+    id: '5g-movel',
+    title: '5G Móvel',
+    url: 'https://play.google.com/store/apps/details?id=net.trtelecom.movel&hl=pt_BR',
+    icon: require('../../assets/images/digital/5g-movel.png'),
+  },
+  {
+    id: 'cameras',
+    title: 'Câmeras',
+    url: 'https://play.google.com/store/apps/details?id=fc.newtrtelecomnew.me&hl=pt_BR',
+    icon: require('../../assets/images/digital/cameras.png'),
+  },
+] as const;
 
 const statusMeta = {
   paid: { label: 'Fatura quitada', tone: colors.success, icon: 'shield-checkmark' },
@@ -316,6 +344,25 @@ export default function HomeScreen() {
               style={styles.carouselItem}
               onPress={() => router.push('/documentos')}
             />
+          </ScrollView>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Serviços digitais</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.digitalCarousel}
+            style={styles.carouselScroll}
+          >
+            {DIGITAL_SERVICES.map((service) => (
+              <DigitalServiceCard
+                key={service.id}
+                title={service.title}
+                icon={service.icon}
+                url={service.url}
+              />
+            ))}
           </ScrollView>
         </View>
 
@@ -689,6 +736,12 @@ const styles = StyleSheet.create({
     width: 152,
     flexGrow: 0,
     flexBasis: 'auto',
+  },
+  digitalCarousel: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
   },
 
   planPanel: {

@@ -15,8 +15,14 @@ import {
   type LoginPointOption,
   type SacClient,
 } from '@/src/services/auth';
+import {
+  addPushInboxItem,
+  loadPushInbox,
+  markPushInboxRead,
+} from '@/src/services/push';
 import type {
   DocumentItem,
+  NotificationItem,
   Subscriber,
   SupportTicket,
 } from '@/src/types';
@@ -58,9 +64,29 @@ type AuthContextValue = {
   addDocument: (title: string, type: string) => Promise<DocumentItem>;
   unreadNotifications: number;
   markNotificationsRead: () => Promise<void>;
+  ingestPushNotification: (item: NotificationItem) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function mergeNotifications(
+  session: NotificationItem[] | undefined,
+  inbox: NotificationItem[]
+): NotificationItem[] {
+  const map = new Map<string, NotificationItem>();
+  for (const item of [...(session || []), ...inbox]) {
+    if (!item?.id) continue;
+    const existing = map.get(item.id);
+    if (!existing || (existing.read && !item.read)) {
+      map.set(item.id, item);
+    } else if (!existing) {
+      map.set(item.id, item);
+    }
+  }
+  return [...map.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
 
 function integrationPending(feature: string): never {
   throw new Error(`${feature} ainda não foi integrado com a API da TR Telecom.`);
@@ -78,7 +104,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.multiRemove(LEGACY_STORAGE_KEYS);
         const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (raw) {
-          setUser(JSON.parse(raw) as Subscriber);
+          const session = JSON.parse(raw) as Subscriber;
+          const inbox = await loadPushInbox();
+          const merged = mergeNotifications(session.notifications, inbox);
+          setUser({ ...session, notifications: merged });
         }
       } finally {
         setIsLoading(false);
@@ -88,8 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persistSession = useCallback(async (next: Subscriber) => {
-    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(next));
-    setUser(next);
+    const inbox = await loadPushInbox();
+    const withInbox = {
+      ...next,
+      notifications: mergeNotifications(next.notifications, inbox),
+    };
+    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(withInbox));
+    setUser(withInbox);
   }, []);
 
   const login = useCallback(
@@ -229,13 +263,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const markNotificationsRead = useCallback(async () => {
-    if (!user || user.notifications.length === 0) return;
+    const inbox = await markPushInboxRead();
+    if (!user) return;
     const next = {
       ...user,
-      notifications: user.notifications.map((item) => ({ ...item, read: true })),
+      notifications: mergeNotifications(
+        user.notifications.map((item) => ({ ...item, read: true })),
+        inbox
+      ),
     };
-    await persistSession(next);
-  }, [persistSession, user]);
+    await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    setUser(next);
+  }, [user]);
+
+  const ingestPushNotification = useCallback(
+    async (item: NotificationItem) => {
+      const inbox = await addPushInboxItem(item);
+      setUser((current) => {
+        if (!current) return current;
+        const next = {
+          ...current,
+          notifications: mergeNotifications(current.notifications, inbox),
+        };
+        void AsyncStorage.setItem(SESSION_KEY, JSON.stringify(next));
+        return next;
+      });
+    },
+    []
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -255,6 +310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       addDocument,
       unreadNotifications: user?.notifications.filter((n) => !n.read).length ?? 0,
       markNotificationsRead,
+      ingestPushNotification,
     }),
     [
       user,
@@ -271,6 +327,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       createTicket,
       addDocument,
       markNotificationsRead,
+      ingestPushNotification,
     ]
   );
 

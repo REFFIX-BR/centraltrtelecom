@@ -228,6 +228,48 @@ export function pickUpgradePlans(
   return { current, upgrades };
 }
 
+/** Planos em vigor hoje para contratação nova: 50 Mbps, 650 Mbps e 1 Gbps. */
+export const HIRE_OFFER_SPEEDS = [50, 650, 1000] as const;
+
+export function matchHireOfferSpeed(mbps: number): number | null {
+  if (mbps >= 900 && mbps <= 1100) return 1000;
+  if (Math.abs(mbps - 650) <= 40) return 650;
+  if (Math.abs(mbps - 50) <= 15) return 50;
+  return null;
+}
+
+export function hireSpeedLabel(mbps: number): string {
+  const speed = matchHireOfferSpeed(mbps) ?? mbps;
+  return speed >= 1000 ? '1 Gbps' : `${speed} Mbps`;
+}
+
+/** Planos residenciais (ou PJ) em vigor hoje: 50, 650 e 1 Gb. */
+export function pickHirePlans(
+  plans: CatalogPlan[],
+  options: { isPj?: boolean } = {}
+): CatalogPlan[] {
+  const preferPj = options.isPj ?? false;
+  let pool = plans.filter((plan) => plan.isPj === preferPj);
+  if (!pool.length) pool = plans.filter((plan) => !plan.isPj);
+
+  const trFiber = pool.filter((plan) => plan.family === 'tr_fiber');
+  if (trFiber.length) pool = trFiber;
+
+  const byOffer = new Map<number, CatalogPlan>();
+  for (const plan of pool) {
+    const offerSpeed = matchHireOfferSpeed(plan.downloadMbps);
+    if (offerSpeed == null) continue;
+    const existing = byOffer.get(offerSpeed);
+    if (!existing || plan.monthlyPrice < existing.monthlyPrice) {
+      byOffer.set(offerSpeed, plan);
+    }
+  }
+
+  return HIRE_OFFER_SPEEDS.map((speed) => byOffer.get(speed)).filter(
+    (plan): plan is CatalogPlan => !!plan
+  );
+}
+
 export function speedGainLabel(fromMbps: number, toMbps: number): string {
   if (fromMbps <= 0) return `Até ${toMbps} Mbps`;
   const gain = Math.round((toMbps / fromMbps) * 10) / 10;

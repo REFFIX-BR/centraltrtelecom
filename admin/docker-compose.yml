@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_VERSION: 20.18.0
+        VITE_ADMIN_API_URL: https://centralapi.trtelecom.net
     command: npm run start
     env_file:
       - .env
@@ -24,10 +25,16 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-network"
+      # API + painel em centralapi.trtelecom.net
       - "traefik.http.routers.centralapi.rule=Host(`centralapi.trtelecom.net`)"
       - "traefik.http.routers.centralapi.entrypoints=websecure"
       - "traefik.http.routers.centralapi.tls=true"
       - "traefik.http.services.centralapi.loadbalancer.server.port=4050"
+      # Painel na rota do site institucional: https://trtelecom.net/central-admin-app
+      - "traefik.http.routers.centralapi-panel.rule=Host(`trtelecom.net`) && PathPrefix(`/central-admin-app`)"
+      - "traefik.http.routers.centralapi-panel.entrypoints=websecure"
+      - "traefik.http.routers.centralapi-panel.tls=true"
+      - "traefik.http.routers.centralapi-panel.service=centralapi"
 
 volumes:
   centralapi_data:

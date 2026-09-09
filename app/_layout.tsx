@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 import { ConnectingSplash } from '@/src/components/ConnectingSplash';
 import { AccountProvider, useAccount } from '@/src/contexts/AccountContext';
 import { AuthProvider, useAuth } from '@/src/contexts/AuthContext';
+import { usePushNotifications } from '@/src/hooks/usePushNotifications';
 import { colors } from '@/src/theme';
 
 export { ErrorBoundary } from 'expo-router';
@@ -19,6 +20,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  usePushNotifications();
 
   useEffect(() => {
     if (isLoading) return;

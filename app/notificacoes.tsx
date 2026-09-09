@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -5,12 +6,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { normalizePushRoute } from '@/src/services/pushRoutes';
 import { colors, radius, spacing } from '@/src/theme';
 import { formatDate } from '@/src/utils/format';
 
 export default function NotificationsScreen() {
   const { user, markNotificationsRead } = useAuth();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   useEffect(() => {
     markNotificationsRead();
@@ -33,7 +36,14 @@ export default function NotificationsScreen() {
           </Card>
         ) : (
           user.notifications.map((item) => (
-            <Card key={item.id} style={styles.card}>
+            <Card
+              key={item.id}
+              style={styles.card}
+              onPress={() => {
+                const href = normalizePushRoute(item.route);
+                if (href) router.push(href as never);
+              }}
+            >
               <View style={styles.row}>
                 <Text style={styles.title}>{item.title}</Text>
                 {!item.read ? <View style={styles.dot} /> : null}

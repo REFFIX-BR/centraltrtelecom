@@ -9,6 +9,8 @@ RUN npm ci
 
 FROM node:${NODE_VERSION}-alpine AS panel
 WORKDIR /app
+ARG VITE_ADMIN_API_URL=https://centralapi.trtelecom.net
+ENV VITE_ADMIN_API_URL=$VITE_ADMIN_API_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY index.html ./

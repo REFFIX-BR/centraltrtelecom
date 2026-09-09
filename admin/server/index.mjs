@@ -21,6 +21,12 @@ import {
   contractsStatus,
   createContractSolicitacao,
 } from './contractsProxy.mjs';
+import {
+  listPushHistory,
+  listPushTokens,
+  registerPushToken,
+  sendPushNotification,
+} from './push.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -528,6 +534,37 @@ app.post('/api/contracts/solicitacao', async (req, res) => {
   }
 });
 
+/** App: registra token Expo Push após login. */
+app.post('/api/push/register', (req, res) => {
+  try {
+    const token = registerPushToken(req.body || {});
+    return res.status(201).json({ token });
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : 'Token inválido',
+    });
+  }
+});
+
+app.get('/api/admin/push/tokens', requireAdmin, (_req, res) => {
+  res.json({ tokens: listPushTokens() });
+});
+
+app.get('/api/admin/push/history', requireAdmin, (_req, res) => {
+  res.json({ history: listPushHistory() });
+});
+
+app.post('/api/admin/push/send', requireAdmin, async (req, res) => {
+  try {
+    const result = await sendPushNotification(req.body || {});
+    return res.status(201).json({ result });
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : 'Falha ao enviar push',
+    });
+  }
+});
+
 app.get('/api/health/db', requireAdmin, async (_req, res) => {
   const database = await checkDatabase();
   res.status(database.ok ? 200 : 503).json({
@@ -537,10 +574,16 @@ app.get('/api/health/db', requireAdmin, async (_req, res) => {
 });
 
 const distPath = path.join(__dirname, '..', 'dist');
+const PANEL_PATH = '/central-admin-app';
+
 if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-  app.get(/^(?!\/api(?:\/|$)|\/webhook(?:\/|$)|\/uploads(?:\/|$)).*/, (_req, res) => {
+  app.use(PANEL_PATH, express.static(distPath, { index: false }));
+  app.get(/^\/central-admin-app(?:\/.*)?$/, (_req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
+  });
+  // Compatibilidade: root do centralapi redireciona para a rota pública
+  app.get('/', (_req, res) => {
+    res.redirect(302, `${PANEL_PATH}/`);
   });
 } else {
   app.get('/', (_req, res) => {

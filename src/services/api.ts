@@ -65,15 +65,29 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    const message =
-      typeof data === 'object' &&
-      data !== null &&
-      'message' in data &&
-      typeof data.message === 'string'
-        ? data.message
-        : typeof data === 'string' && data.trim()
-          ? data.trim()
-          : 'Não foi possível concluir a solicitação.';
+    let message = 'Não foi possível concluir a solicitação.';
+    if (typeof data === 'object' && data !== null) {
+      const payload = data as {
+        message?: unknown;
+        error?: unknown;
+        details?: unknown;
+      };
+      const base =
+        typeof payload.message === 'string' && payload.message.trim()
+          ? payload.message.trim()
+          : typeof payload.error === 'string' && payload.error.trim()
+            ? payload.error.trim()
+            : '';
+      const detail =
+        typeof payload.details === 'string' && payload.details.trim()
+          ? payload.details.trim()
+          : '';
+      if (base && detail) message = `${base} (${detail})`;
+      else if (base) message = base;
+      else if (detail) message = detail;
+    } else if (typeof data === 'string' && data.trim()) {
+      message = data.trim();
+    }
     throw new ApiError(message, response.status, data);
   }
 

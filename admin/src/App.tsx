@@ -22,6 +22,7 @@ import {
 } from './api';
 import { OrdersPanel } from './OrdersPanel';
 import { MobilePlansPanel } from './MobilePlansPanel';
+import { PushPanel } from './PushPanel';
 
 const emptyForm: BannerInput = {
   title: '',
@@ -55,7 +56,7 @@ const LINK_PRESETS = [
 const LINK_GROUPS = ['Abas do app', 'Telas'] as const;
 
 type FilterKey = 'all' | 'active' | 'hidden';
-type AdminView = 'banners' | 'orders' | 'mobile';
+type AdminView = 'banners' | 'orders' | 'mobile' | 'push';
 
 function Icon({ name }: { name: string }) {
   const paths: Record<string, string> = {
@@ -148,6 +149,7 @@ export function App() {
   const [view, setView] = useState<AdminView>('mobile');
   const [orderCounts, setOrderCounts] = useState({ total: 0, open: 0 });
   const [mobileCounts, setMobileCounts] = useState({ total: 0, visible: 0 });
+  const [pushCounts, setPushCounts] = useState({ total: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sorted = useMemo(
@@ -409,14 +411,18 @@ export function App() {
       ? 'Ordens de serviço'
       : view === 'mobile'
         ? 'Telefonia móvel'
-        : 'Propagandas';
+        : view === 'push'
+          ? 'Notificações push'
+          : 'Propagandas';
 
   const pageSubtitle =
     view === 'orders'
       ? 'Acompanhe upgrades e solicitações dos clientes'
       : view === 'mobile'
         ? 'Planos AltaRede liberados no app'
-        : 'Cards do carrossel na Home do app';
+        : view === 'push'
+          ? 'Avisos no celular via Expo Push'
+          : 'Cards do carrossel na Home do app';
 
   return (
     <div className="crm">
@@ -448,6 +454,16 @@ export function App() {
             <Icon name="phone" />
             <span>Telefonia móvel</span>
             {mobileCounts.visible > 0 ? <em>{mobileCounts.visible}</em> : null}
+          </button>
+
+          <button
+            type="button"
+            className={`sidebar-link ${view === 'push' ? 'is-on' : ''}`}
+            onClick={() => setView('push')}
+          >
+            <Icon name="bell" />
+            <span>Notificações</span>
+            {pushCounts.total > 0 ? <em>{pushCounts.total}</em> : null}
           </button>
 
           <p className="sidebar-label">Conteúdo</p>
@@ -506,6 +522,13 @@ export function App() {
                 <div className="top-stat">
                   <span>Total</span>
                   <strong>{mobileCounts.total}</strong>
+                </div>
+              </>
+            ) : view === 'push' ? (
+              <>
+                <div className="top-stat is-live">
+                  <span>Aparelhos</span>
+                  <strong>{pushCounts.total}</strong>
                 </div>
               </>
             ) : (
@@ -569,6 +592,15 @@ export function App() {
                 else setSuccess(null);
               }}
               onCounts={setMobileCounts}
+            />
+          ) : view === 'push' ? (
+            <PushPanel
+              onError={setError}
+              onSuccess={(message) => {
+                if (message) flash(message);
+                else setSuccess(null);
+              }}
+              onCounts={setPushCounts}
             />
           ) : (
             <main className="board">

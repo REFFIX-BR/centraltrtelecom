@@ -1,0 +1,48 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "development"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "preview"
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://webhook.trtelecom.net",
+        "EXPO_PUBLIC_BANNERS_URL": "https://centralapi.trtelecom.net",
+        "EXPO_PUBLIC_COMERCIAL_VENDEDOR": "TRJHCRMYIU",
+        "EXPO_PUBLIC_UPGRADE_WHATSAPP": "24993279575",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "6564e120-c3bc-4b5a-ad08-5f2d235c21fa"
+      },
+      "channel": "production"
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
+  }
+}

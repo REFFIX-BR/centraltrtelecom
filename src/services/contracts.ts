@@ -1,5 +1,7 @@
 import { ApiError, apiRequest } from '@/src/services/api';
 import { getBannersApiBase } from '@/src/services/banners';
+import { resolveAddressParts } from '@/src/services/commercial';
+import type { AddressParts, Subscriber } from '@/src/types';
 import { onlyDigits } from '@/src/utils/format';
 
 export type ContractStatus =
@@ -136,6 +138,144 @@ export function isContractViewOnly(contract: ClientContract): boolean {
   );
 }
 
+/** Assinado pelo cliente (em análise ou aprovado). */
+export function isContractSignedStatus(
+  status: string | null | undefined
+): boolean {
+  return status === 'signed' || status === 'pending_review';
+}
+
+export function findContractByAssinaturaUrl(
+  summary: ContractSummary | null,
+  assinaturaUrl: string | null | undefined
+): ClientContract | null {
+  const url = String(assinaturaUrl || '').trim();
+  if (!summary?.found || !url) return null;
+  return (
+    summary.contracts.find((item) => String(item.assinaturaUrl || '').trim() === url) ||
+    null
+  );
+}
+
+export function findContractById(
+  summary: ContractSummary | null,
+  contractId: string | null | undefined
+): ClientContract | null {
+  const id = String(contractId || '').trim();
+  if (!summary?.found || !id) return null;
+  return summary.contracts.find((item) => item.contractId === id) || null;
+}
+
+/**
+ * Localiza o contrato de upgrade após a criação (ainda pending ou já assinado).
+ */
+export function resolveUpgradeContract(
+  summary: ContractSummary | null,
+  opts: {
+    contractId?: string | null;
+    assinaturaUrl?: string | null;
+  }
+): ClientContract | null {
+  return (
+    findContractById(summary, opts.contractId) ||
+    findContractByAssinaturaUrl(summary, opts.assinaturaUrl)
+  );
+}
+
+/** Evita limpar o pendente nos segundos logo após a criação do contrato. */
+const UNSIGNED_CONTRACT_GRACE_MS = 90_000;
+
+/**
+ * Contrato de upgrade sem assinatura foi cancelado/excluído na plataforma
+ * → o app deve limpar o pendente para o cliente solicitar de novo.
+ */
+export function shouldDropUnsignedUpgradePending(
+  summary: ContractSummary | null,
+  pending: {
+    contractId?: string | null;
+    assinaturaUrl?: string | null;
+    createdAt: string;
+    comercialSubmitted?: boolean;
+  }
+): boolean {
+  if (!summary || pending.comercialSubmitted) return false;
+
+  const contract = resolveUpgradeContract(summary, {
+    contractId: pending.contractId,
+    assinaturaUrl: pending.assinaturaUrl,
+  });
+
+  if (contract) {
+    return contract.status === 'cancelled';
+  }
+
+  const hasRef =
+    !!String(pending.contractId || '').trim() ||
+    !!String(pending.assinaturaUrl || '').trim();
+  if (!hasRef) return false;
+
+  const ageMs = Date.now() - new Date(pending.createdAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs < UNSIGNED_CONTRACT_GRACE_MS) {
+    return false;
+  }
+
+  // Não está mais na lista (excluído) ou cliente sem contratos.
+  return true;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * GET status-by-client em loop até o contrato estar assinado
+ * (`pending_review` ou `signed`), conforme a documentação.
+ */
+export async function waitForContractSigned(
+  document: string,
+  opts: {
+    contractId?: string | null;
+    assinaturaUrl?: string | null;
+    createdAfter?: string | null;
+    attempts?: number;
+    delayMs?: number;
+  } = {}
+): Promise<ClientContract | null> {
+  const attempts = opts.attempts ?? 15;
+  const delayMs = opts.delayMs ?? 2000;
+  const createdAfterMs = opts.createdAfter
+    ? new Date(opts.createdAfter).getTime()
+    : 0;
+
+  for (let i = 0; i < attempts; i++) {
+    const summary = await fetchContractsByDocument(document);
+    const direct = resolveUpgradeContract(summary, opts);
+    if (direct && isContractSignedStatus(direct.status)) {
+      return direct;
+    }
+
+    // Após assinar, o link pode mudar/zerar — pega o mais recente assinado
+    // criado perto do pedido de upgrade.
+    const signedList = summary.contracts.filter((item) =>
+      isContractSignedStatus(item.status)
+    );
+    const recent = signedList.find((item) => {
+      if (!createdAfterMs) return i >= 1;
+      const created = new Date(item.createdAt || item.updatedAt).getTime();
+      return (
+        Number.isFinite(created) && created + 60_000 >= createdAfterMs
+      );
+    });
+    if (recent) return recent;
+
+    if (i < attempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  return null;
+}
+
 /** Marca amarela: sem contrato, ou com contrato ainda não assinado. */
 export function contractNeedsAttention(summary: ContractSummary | null): boolean {
   if (!summary) return false;
@@ -151,31 +291,7 @@ export type CreateContractResult = {
   modalidade?: string;
 };
 
-function formatFullAddress(
-  user: {
-    address?: string;
-    addressParts?: {
-      endereco?: string;
-      numero?: string;
-      bairro?: string;
-      cidade?: string;
-      estado?: string;
-      cep?: string;
-      complemento?: string;
-    };
-  },
-  connectionAddress?: string | null,
-  connectionParts?: {
-    endereco?: string;
-    numero?: string;
-    bairro?: string;
-    cidade?: string;
-    estado?: string;
-    cep?: string;
-    complemento?: string;
-  } | null
-): string {
-  const parts = connectionParts || user.addressParts;
+function formatFullAddress(parts: AddressParts | null, fallback?: string | null): string {
   if (parts?.endereco) {
     return [
       parts.endereco,
@@ -191,65 +307,55 @@ function formatFullAddress(
       .filter(Boolean)
       .join(', ');
   }
-  return (
-    String(connectionAddress || user.address || '').trim() || 'Não informado'
-  );
+  return String(fallback || '').trim();
 }
 
 /**
  * Cria contrato de upgrade via proxy da Central (API Key no servidor).
  */
 export async function createUpgradeContract(input: {
-  user: {
-    name: string;
-    document: string;
-    phone: string;
-    email: string;
-    login: string;
-    birthDate?: string;
-    address?: string;
-    addressParts?: {
-      endereco?: string;
-      numero?: string;
-      bairro?: string;
-      cidade?: string;
-      estado?: string;
-      cep?: string;
-      complemento?: string;
-    };
-  };
+  user: Subscriber;
   planName: string;
   speedMbps: number;
   monthlyPrice: number;
   connectionAddress?: string | null;
-  connectionAddressParts?: {
-    endereco?: string;
-    numero?: string;
-    bairro?: string;
-    cidade?: string;
-    estado?: string;
-    cep?: string;
-    complemento?: string;
-  } | null;
+  connectionAddressParts?: AddressParts | null;
 }): Promise<CreateContractResult> {
   const base = getBannersApiBase();
   if (!base) {
     throw new Error('API da Central não configurada (EXPO_PUBLIC_BANNERS_URL).');
   }
 
-  const address = formatFullAddress(
-    input.user,
-    input.connectionAddress,
-    input.connectionAddressParts
-  );
-  const cep =
-    input.connectionAddressParts?.cep ||
-    input.user.addressParts?.cep ||
-    undefined;
+  const phone = onlyDigits(input.user.phone);
+  if (phone.length < 10) {
+    throw new Error(
+      'Atualize seu telefone no cadastro antes de solicitar o upgrade.'
+    );
+  }
 
-  const data = await apiRequest<Partial<CreateContractResult> & { error?: string }>(
-    `${base}/api/contracts/solicitacao`,
-    {
+  const parts = resolveAddressParts(
+    input.user,
+    input.connectionAddressParts,
+    input.connectionAddress
+  );
+  const address = formatFullAddress(
+    parts,
+    input.connectionAddress || input.user.address
+  );
+  if (!address || address.length < 8) {
+    throw new Error(
+      'Não encontramos seu endereço completo. Atualize o cadastro ou fale com o suporte.'
+    );
+  }
+
+  const email =
+    String(input.user.email || '').trim() ||
+    `${onlyDigits(input.user.document)}@cliente.trtelecom.net`;
+
+  try {
+    const data = await apiRequest<
+      Partial<CreateContractResult> & { error?: string; details?: unknown }
+    >(`${base}/api/contracts/solicitacao`, {
       method: 'POST',
       timeoutMs: 45000,
       body: {
@@ -257,34 +363,34 @@ export async function createUpgradeContract(input: {
         cpf: input.user.document,
         nomeCompleto: input.user.name,
         telefone: input.user.phone,
-        emailContato:
-          input.user.email ||
-          `${onlyDigits(input.user.document)}@cliente.trtelecom.net`,
+        emailContato: email,
         enderecoCompleto: address,
         clientLogin: input.user.login,
         birthDate: input.user.birthDate || undefined,
-        clientCEP: cep,
+        clientCEP: parts?.cep,
         observacoes: `Upgrade Central do Assinante · ${input.planName} · ${input.speedMbps} Mbps · R$ ${input.monthlyPrice}`,
-        plano: {
-          nome: input.planName,
-          velocidade: input.speedMbps,
-          valor: input.monthlyPrice,
-        },
+        plano: `${input.planName} · ${input.speedMbps} Mbps`,
       },
+    });
+
+    const assinaturaUrl = String(data.assinaturaUrl || '').trim();
+    if (!assinaturaUrl) {
+      throw new Error(
+        data.error ||
+          'Contrato criado sem link de assinatura. Fale com o suporte.'
+      );
     }
-  );
 
-  const assinaturaUrl = String(data.assinaturaUrl || '').trim();
-  if (!assinaturaUrl) {
-    throw new Error(
-      data.error || 'Contrato criado sem link de assinatura. Fale com o suporte.'
-    );
+    return {
+      cpf: data.cpf || null,
+      assinaturaUrl,
+      contractId: data.contractId || null,
+      modalidade: data.modalidade,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw new Error(error.message);
+    }
+    throw error;
   }
-
-  return {
-    cpf: data.cpf || null,
-    assinaturaUrl,
-    contractId: data.contractId || null,
-    modalidade: data.modalidade,
-  };
 }

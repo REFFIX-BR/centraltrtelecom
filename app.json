@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "TR Telecom",
-    "slug": "central-assinante",
+    "slug": "trtelecom-central-do-assinante",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trtelecom.central"
+      "bundleIdentifier": "com.trtelecom.central",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserNotificationsUsageDescription": "A TR Telecom envia avisos sobre faturas, suporte e novidades da sua conta."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "package": "com.trtelecom.central"
+      "package": "central.tr.telecom"
     },
     "web": {
       "bundler": "metro",
@@ -35,10 +39,31 @@
           "resizeMode": "contain",
           "backgroundColor": "#0E2C5B"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0E2C5B",
+          "defaultChannel": "default",
+          "sounds": []
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6564e120-c3bc-4b5a-ad08-5f2d235c21fa"
+      }
+    },
+    "owner": "trtelecoms-team",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6564e120-c3bc-4b5a-ad08-5f2d235c21fa"
     }
   }
 }
