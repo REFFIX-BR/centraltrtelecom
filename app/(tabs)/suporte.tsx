@@ -48,8 +48,8 @@ export default function SupportScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Trocar senha do Wi-Fi"
-          onPress={() => router.push('/wifi')}
+          accessibilityLabel="Abrir chamado"
+          onPress={() => router.push('/suporte/novo')}
           style={({ pressed }) => pressed && styles.pressed}
         >
           <LinearGradient
@@ -60,19 +60,41 @@ export default function SupportScreen() {
           >
             <View style={styles.wifiGlow} />
             <View style={styles.primaryIcon}>
-              <Ionicons name="key-outline" size={27} color={colors.white} />
+              <Ionicons name="create-outline" size={27} color={colors.white} />
             </View>
             <View style={styles.primaryContent}>
-              <Text style={styles.primaryEyebrow}>REDE WI-FI</Text>
-              <Text style={styles.primaryTitle}>Trocar senha</Text>
+              <Text style={styles.primaryEyebrow}>ATENDIMENTO</Text>
+              <Text style={styles.primaryTitle}>Abrir chamado</Text>
               <Text style={styles.primaryDescription}>
-                Altere o nome e a senha das redes 2.4 GHz e 5 GHz.
+                Escolha o setor, o motivo e descreva o que precisa.
               </Text>
             </View>
             <View style={styles.primaryArrow}>
               <Ionicons name="arrow-forward" size={19} color={colors.primary} />
             </View>
           </LinearGradient>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Trocar senha do Wi-Fi"
+          onPress={() => router.push('/wifi')}
+          style={({ pressed }) => [
+            styles.wifiSecondary,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.wifiSecondaryIcon}>
+            <Ionicons name="key-outline" size={24} color={colors.accent} />
+          </View>
+          <View style={styles.wifiSecondaryContent}>
+            <Text style={styles.wifiSecondaryEyebrow}>REDE WI-FI</Text>
+            <Text style={styles.wifiSecondaryTitle}>Trocar senha</Text>
+            <Text style={styles.wifiSecondaryDescription}>
+              Altere o nome e a senha das redes 2.4 GHz e 5 GHz.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.accent} />
         </Pressable>
 
         <View style={styles.serviceGrid}>
@@ -224,6 +246,45 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  wifiSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    ...shadows.soft,
+  },
+  wifiSecondaryIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wifiSecondaryContent: {
+    flex: 1,
+    gap: 2,
+  },
+  wifiSecondaryEyebrow: {
+    color: colors.accent,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  wifiSecondaryTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  wifiSecondaryDescription: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
   },
   serviceGrid: {
     flexDirection: 'row',
