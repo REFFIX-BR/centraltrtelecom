@@ -33,5 +33,5 @@ export const shadows = {
   },
 } as const;
 
-/** Espaço inferior das tabs considerando a barra flutuante */
-export const tabScrollBottom = 110;
+/** Espaço inferior das tabs: barra flutuante (~70) + folga; insets.bottom entra nas telas */
+export const tabScrollBottom = 120;

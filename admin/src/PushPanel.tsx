@@ -1,12 +1,50 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
+  getPushAudience,
   listPushHistory,
   listPushTokens,
   sendPush,
+  type PushAudience,
   type PushHistoryItem,
+  type PushProfile,
+  type PushSegmentFilters,
   type PushToken,
 } from './api';
+
+const SEGMENT_GROUPS: { key: keyof PushSegmentFilters; title: string }[] = [
+  { key: 'contract', title: 'Situação do contrato' },
+  { key: 'financial', title: 'Financeiro' },
+  { key: 'recurrence', title: 'Recorrência de pagamento' },
+];
+
+const EMPTY_FILTERS: PushSegmentFilters = {
+  contract: [],
+  financial: [],
+  recurrence: [],
+};
+
+function matchesFilters(
+  profile: PushProfile | undefined,
+  filters: PushSegmentFilters
+) {
+  if (!profile) return false;
+  const pass = (list: string[], value: string) =>
+    list.length === 0 || list.includes(value);
+  return (
+    pass(filters.contract, profile.contract) &&
+    pass(filters.financial, profile.financial) &&
+    pass(filters.recurrence, profile.recurrence)
+  );
+}
+
+function hasFilters(filters: PushSegmentFilters) {
+  return (
+    filters.contract.length > 0 ||
+    filters.financial.length > 0 ||
+    filters.recurrence.length > 0
+  );
+}
 
 const PUSH_SCREENS = [
   { group: 'Abas do app', label: 'Início', href: '/(tabs)' },
@@ -77,7 +115,47 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
   const [route, setRoute] = useState('/(tabs)/faturas');
   const [document, setDocument] = useState('');
   const [selectedToken, setSelectedToken] = useState('');
-  const [audience, setAudience] = useState<'all' | 'document' | 'device'>('all');
+  const [audience, setAudience] = useState<
+    'all' | 'segment' | 'document' | 'device'
+  >('all');
+  const [filters, setFilters] = useState<PushSegmentFilters>(EMPTY_FILTERS);
+  const [audienceData, setAudienceData] = useState<PushAudience | null>(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
+
+  async function loadAudience(refresh = false) {
+    setAudienceLoading(true);
+    try {
+      setAudienceData(await getPushAudience(refresh));
+      onError(null);
+    } catch (error) {
+      onError(
+        error instanceof Error
+          ? error.message
+          : 'Falha ao consultar a situação dos clientes.'
+      );
+    } finally {
+      setAudienceLoading(false);
+    }
+  }
+
+  function toggleFilter(group: keyof PushSegmentFilters, id: string) {
+    setFilters((current) => {
+      const list = current[group];
+      return {
+        ...current,
+        [group]: list.includes(id)
+          ? list.filter((item) => item !== id)
+          : [...list, id],
+      };
+    });
+  }
+
+  useEffect(() => {
+    if (audience === 'segment' && !audienceData && !audienceLoading) {
+      void loadAudience();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audience]);
 
   async function load() {
     setLoading(true);
@@ -108,8 +186,16 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
   const openLabel = screenLabel(route);
   const docDigits = document.replace(/\D/g, '');
 
+  const profiles = audienceData?.profiles;
+
   const matchedRecipients = useMemo(() => {
     if (audience === 'all') return tokens;
+    if (audience === 'segment') {
+      if (!profiles) return [];
+      return tokens.filter((item) =>
+        matchesFilters(profiles[item.token], filters)
+      );
+    }
     if (audience === 'device') {
       return selectedToken
         ? tokens.filter((item) => item.token === selectedToken)
@@ -117,7 +203,21 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
     }
     if (!docDigits) return [];
     return tokens.filter((item) => item.document === docDigits);
-  }, [audience, docDigits, selectedToken, tokens]);
+  }, [audience, docDigits, filters, profiles, selectedToken, tokens]);
+
+  const segmentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!profiles) return counts;
+    for (const item of tokens) {
+      const profile = profiles[item.token];
+      if (!profile) continue;
+      for (const { key } of SEGMENT_GROUPS) {
+        const id = `${key}:${profile[key]}`;
+        counts[id] = (counts[id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [profiles, tokens]);
 
   const previewToken =
     matchedRecipients[0] || selectedDevice || tokens[0] || null;
@@ -136,7 +236,8 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
     body.trim().length > 0 &&
     matchedRecipients.length > 0 &&
     (audience !== 'document' || docDigits.length >= 11) &&
-    (audience !== 'device' || Boolean(selectedToken));
+    (audience !== 'device' || Boolean(selectedToken)) &&
+    (audience !== 'segment' || (hasFilters(filters) && !audienceLoading));
 
   const blockHint = useMemo(() => {
     if (tokens.length === 0) {
@@ -151,8 +252,27 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
     if (audience === 'device' && !selectedToken) {
       return 'Escolha um aparelho na lista ao lado.';
     }
+    if (audience === 'segment') {
+      if (audienceLoading) {
+        return 'Consultando a situação de cada cliente no SAC…';
+      }
+      if (!hasFilters(filters)) {
+        return 'Marque pelo menos um filtro (ex.: Ativos, Em dia).';
+      }
+      if (matchedRecipients.length === 0) {
+        return 'Nenhum aparelho corresponde aos filtros escolhidos.';
+      }
+    }
     return null;
-  }, [audience, docDigits, matchedRecipients.length, selectedToken, tokens.length]);
+  }, [
+    audience,
+    audienceLoading,
+    docDigits,
+    filters,
+    matchedRecipients.length,
+    selectedToken,
+    tokens.length,
+  ]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -168,7 +288,8 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
         title: title.trim(),
         body: body.trim(),
         route,
-        sendToAll: audience === 'all',
+        sendToAll: audience === 'all' || audience === 'segment',
+        filters: audience === 'segment' ? filters : undefined,
         document: audience === 'document' ? document : undefined,
         token: audience === 'device' ? selectedToken : undefined,
       });
@@ -247,6 +368,7 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
               {(
                 [
                   ['all', 'Todos'],
+                  ['segment', 'Filtros'],
                   ['document', 'Por CPF'],
                   ['device', 'Um aparelho'],
                 ] as const
@@ -263,6 +385,47 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
                 </button>
               ))}
             </div>
+
+            {audience === 'segment' ? (
+              <div className="push-segments">
+                <div className="push-segments-head">
+                  <span>
+                    Grupos combinam entre si (ex.: Ativos <strong>e</strong>{' '}
+                    Em atraso). Dentro do grupo, vale qualquer opção marcada.
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={audienceLoading}
+                    onClick={() => void loadAudience(true)}
+                  >
+                    {audienceLoading ? 'Consultando…' : 'Atualizar situação'}
+                  </button>
+                </div>
+                {SEGMENT_GROUPS.map(({ key, title: groupTitle }) => (
+                  <div key={key} className="push-segment-group">
+                    <p>{groupTitle}</p>
+                    <div className="push-chips">
+                      {(audienceData?.segments[key] || []).map((option) => {
+                        const on = filters[key].includes(option.id);
+                        const count = segmentCounts[`${key}:${option.id}`] || 0;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`push-chip ${on ? 'is-on' : ''}`}
+                            onClick={() => toggleFilter(key, option.id)}
+                          >
+                            {option.label}
+                            <span>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {audience === 'document' ? (
               <label className="field">
@@ -429,6 +592,23 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
                         <small>
                           {item.platform || 'app'} · {formatWhen(item.updatedAt)}
                         </small>
+                        {profiles?.[item.token] ? (
+                          <span className="push-device-tags">
+                            {profiles[item.token].statusTipo || 'Sem situação'}
+                            {' · '}
+                            {profiles[item.token].financial === 'em_atraso'
+                              ? 'Em atraso'
+                              : profiles[item.token].financial === 'em_dia'
+                                ? 'Em dia'
+                                : 'Financeiro ?'}
+                            {profiles[item.token].recurrence === 'recorrente'
+                              ? ' · Recorrente'
+                              : profiles[item.token].recurrence ===
+                                  'nao_recorrente'
+                                ? ' · Não recorrente'
+                                : ''}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                   );
@@ -458,7 +638,9 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
                     <small>
                       {formatWhen(item.createdAt)} · {item.delivered}/
                       {item.recipients} · {screenLabel(item.route)}
-                      {item.sendToAll
+                      {item.filters
+                        ? ' · filtrado'
+                        : item.sendToAll
                         ? ' · todos'
                         : item.document
                           ? ` · ${item.document}`

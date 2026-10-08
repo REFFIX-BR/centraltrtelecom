@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1058845291339",
+    "project_id": "central-app-d878c",
+    "storage_bucket": "central-app-d878c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058845291339:android:6ab4052dead2683ceeeece",
+        "android_client_info": {
+          "package_name": "central.tr.telecom"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAe_QMKCHEn9l7-NhNPVQyG7qtTqii6Pac"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

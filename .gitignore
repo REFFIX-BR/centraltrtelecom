@@ -35,6 +35,11 @@ yarn-error.*
 .env*.local
 .env
 
+# Firebase / FCM — chave privada NUNCA vai pro git
+*-firebase-adminsdk-*.json
+fcm-service-account.json
+firebase-service-account*.json
+
 # admin
 admin/node_modules/
 admin/dist/

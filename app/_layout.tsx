@@ -55,11 +55,17 @@ function AccountGate({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const { isLoading } = useAccount();
 
-  if (isAuthenticated && isLoading) {
-    return <ConnectingSplash />;
-  }
-
-  return <>{children}</>;
+  // Overlay — não desmonta o Stack (desmontar quebrava deep link do push).
+  return (
+    <View style={styles.gate}>
+      {children}
+      {isAuthenticated && isLoading ? (
+        <View style={styles.splashOverlay} pointerEvents="auto">
+          <ConnectingSplash />
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 export default function RootLayout() {
@@ -100,6 +106,11 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  gate: { flex: 1 },
+  splashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
   loading: {
     flex: 1,
     alignItems: 'center',

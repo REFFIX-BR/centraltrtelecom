@@ -2,6 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  getPushProfiles,
+  hasSegmentFilters,
+  matchesSegment,
+  normalizeSegmentFilters,
+} from './pushProfiles.mjs';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const TOKENS_FILE = path.join(__dirname, 'data', 'push-tokens.json');
@@ -134,15 +141,26 @@ export async function sendPushNotification(input = {}) {
   if (!title) throw new Error('Informe o título da notificação.');
   if (!body) throw new Error('Informe a mensagem da notificação.');
 
+  const filters = normalizeSegmentFilters(input.filters);
+  const segmented = sendToAll && hasSegmentFilters(filters);
+
   let recipients = pickRecipients({ document, login, sendToAll });
   if (token) {
     recipients = listPushTokens().filter((item) => item.token === token);
   }
+  if (segmented) {
+    const profiles = await getPushProfiles(recipients);
+    recipients = recipients.filter((item) =>
+      matchesSegment(profiles[item.token], filters)
+    );
+  }
   if (!recipients.length) {
     throw new Error(
-      sendToAll
-        ? 'Nenhum aparelho registrado ainda.'
-        : 'Nenhum aparelho encontrado para este CPF/login.'
+      segmented
+        ? 'Nenhum aparelho corresponde aos filtros escolhidos.'
+        : sendToAll
+          ? 'Nenhum aparelho registrado ainda.'
+          : 'Nenhum aparelho encontrado para este CPF/login.'
     );
   }
 
@@ -170,6 +188,7 @@ export async function sendPushNotification(input = {}) {
     body,
     route,
     sendToAll,
+    filters: segmented ? filters : null,
     document: digits(document),
     login: String(login || '').trim(),
     recipients: recipients.length,

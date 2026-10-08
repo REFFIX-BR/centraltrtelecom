@@ -204,6 +204,9 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Evita janela em que isLoading ainda é false antes do fetch começar
+    // (o push navegava cedo e o splash desmontava o fluxo).
+    setIsLoading(true);
     loadAccountData(login, document);
   }, [isAuthenticated, login, document, loadAccountData]);
 

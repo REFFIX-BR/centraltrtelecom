@@ -27,6 +27,12 @@ import {
   registerPushToken,
   sendPushNotification,
 } from './push.mjs';
+import {
+  CONTRACT_SEGMENTS,
+  FINANCIAL_SEGMENTS,
+  RECURRENCE_SEGMENTS,
+  getPushProfiles,
+} from './pushProfiles.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -548,6 +554,27 @@ app.post('/api/push/register', (req, res) => {
 
 app.get('/api/admin/push/tokens', requireAdmin, (_req, res) => {
   res.json({ tokens: listPushTokens() });
+});
+
+/** Perfil de cada aparelho (contrato, financeiro, recorrência) para os filtros. */
+app.get('/api/admin/push/audience', requireAdmin, async (req, res) => {
+  try {
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const profiles = await getPushProfiles(listPushTokens(), { refresh });
+    res.json({
+      profiles,
+      segments: {
+        contract: CONTRACT_SEGMENTS,
+        financial: FINANCIAL_SEGMENTS,
+        recurrence: RECURRENCE_SEGMENTS,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error:
+        error instanceof Error ? error.message : 'Falha ao montar o público.',
+    });
+  }
 });
 
 app.get('/api/admin/push/history', requireAdmin, (_req, res) => {

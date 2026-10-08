@@ -1745,7 +1745,7 @@ input:focus {
 
 .push-audience {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   padding: 4px;
   border-radius: 14px;
@@ -1767,6 +1767,83 @@ input:focus {
   background: white;
   color: var(--navy);
   box-shadow: 0 4px 14px rgba(7, 27, 56, 0.08);
+}
+
+.push-segments {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #f8fbff;
+}
+
+.push-segments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.push-segment-group {
+  display: grid;
+  gap: 8px;
+}
+
+.push-segment-group p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.push-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.push-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #c8daf3;
+  background: white;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.push-chip span {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  font-size: 11px;
+  text-align: center;
+}
+
+.push-chip.is-on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: white;
+}
+
+.push-chip.is-on span {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.push-device-tags {
+  color: var(--navy) !important;
+  font-weight: 700;
 }
 
 .push-selected-device {

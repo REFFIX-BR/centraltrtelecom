@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
+import { useAccount } from '@/src/contexts/AccountContext';
 import { useAuth } from '@/src/contexts/AuthContext';
 import {
   itemFromExpoNotification,
@@ -16,8 +17,10 @@ import {
 export function usePushNotifications() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, ingestPushNotification } = useAuth();
+  const { isLoading: accountLoading } = useAccount();
   const registeredFor = useRef<string | null>(null);
   const handledResponse = useRef<string | null>(null);
+  const navigatedRoute = useRef<string | null>(null);
 
   useEffect(() => {
     if (Platform.OS === 'web' || !isAuthenticated || !user) return;
@@ -29,7 +32,14 @@ export function usePushNotifications() {
     void (async () => {
       try {
         const token = await registerForPushNotificationsAsync();
-        if (!token || cancelled) return;
+        if (!token || cancelled) {
+          if (__DEV__ && !token) {
+            console.warn(
+              '[push] Token não gerado (permissão negada, emulador ou FCM/APNs ausente).'
+            );
+          }
+          return;
+        }
         await registerPushTokenWithApi({
           token,
           document: user.document,
@@ -37,8 +47,11 @@ export function usePushNotifications() {
           name: user.name,
         });
         if (!cancelled) registeredFor.current = key;
-      } catch {
-        // Sem permissão, Expo Go no Android ou API offline — o app segue.
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[push] Falha ao registrar token', error);
+        }
+        registeredFor.current = null;
       }
     })();
 
@@ -61,7 +74,15 @@ export function usePushNotifications() {
       const item = itemFromExpoNotification(response.notification);
       void ingestPushNotification(item);
       const route = routeFromNotificationResponse(response);
+      navigatedRoute.current = null;
       await savePendingPushRoute(route);
+
+      // Evita reprocessar o mesmo toque em cold start / remount.
+      try {
+        await Notifications.clearLastNotificationResponseAsync();
+      } catch {
+        // Versões antigas do expo-notifications podem não ter o método.
+      }
     }
 
     const received = Notifications.addNotificationReceivedListener(
@@ -87,20 +108,24 @@ export function usePushNotifications() {
   }, [ingestPushNotification]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' || isLoading || !isAuthenticated) return;
+    if (Platform.OS === 'web') return;
+    // Espera sessão + dados da conta (splash) antes de navegar.
+    if (isLoading || !isAuthenticated || accountLoading) return;
 
     let cancelled = false;
     const timer = setTimeout(() => {
       void (async () => {
         const route = await takePendingPushRoute();
         if (!route || cancelled) return;
+        if (navigatedRoute.current === route) return;
+        navigatedRoute.current = route;
         router.replace(route as never);
       })();
-    }, 350);
+    }, 200);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, accountLoading, router]);
 }

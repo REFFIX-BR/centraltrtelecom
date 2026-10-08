@@ -4,11 +4,13 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  type ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -24,32 +26,52 @@ import { pickNextInvoice } from '@/src/services/invoices';
 import { colors, radius, spacing, tabScrollBottom } from '@/src/theme';
 import { formatCurrency, formatShortDate } from '@/src/utils/format';
 
-const DIGITAL_SERVICES = [
+type DigitalService = {
+  id: string;
+  title: string;
+  androidUrl: string;
+  iosUrl?: string;
+  icon: ImageSourcePropType;
+};
+
+const DIGITAL_SERVICES: DigitalService[] = [
   {
     id: 'telemedicina',
     title: 'Telemedicina',
-    url: 'https://play.google.com/store/apps/details?id=com.mediquo.main&hl=pt_BR',
+    androidUrl:
+      'https://play.google.com/store/apps/details?id=com.mediquo.main&hl=pt_BR',
+    iosUrl:
+      'https://apps.apple.com/br/app/mediquo-chat-consulta-m%C3%A9dica/id1320968041',
     icon: require('../../assets/images/digital/telemedicina.png'),
   },
   {
     id: 'app-tv',
     title: 'App TV',
-    url: 'https://play.google.com/store/apps/details?id=com.tr2telecomapp.unitv&hl=pt_BR',
+    androidUrl:
+      'https://play.google.com/store/apps/details?id=com.tr2telecomapp.unitv&hl=pt_BR',
     icon: require('../../assets/images/digital/app-tv.png'),
   },
   {
     id: '5g-movel',
     title: '5G Móvel',
-    url: 'https://play.google.com/store/apps/details?id=net.trtelecom.movel&hl=pt_BR',
+    androidUrl:
+      'https://play.google.com/store/apps/details?id=net.trtelecom.movel&hl=pt_BR',
     icon: require('../../assets/images/digital/5g-movel.png'),
   },
   {
     id: 'cameras',
     title: 'Câmeras',
-    url: 'https://play.google.com/store/apps/details?id=fc.newtrtelecomnew.me&hl=pt_BR',
+    androidUrl:
+      'https://play.google.com/store/apps/details?id=fc.newtrtelecomnew.me&hl=pt_BR',
+    iosUrl: 'https://apps.apple.com/br/app/tr-telecom-cam/id6741867353',
     icon: require('../../assets/images/digital/cameras.png'),
   },
-] as const;
+];
+
+function digitalServiceUrl(service: DigitalService): string {
+  if (Platform.OS === 'ios' && service.iosUrl) return service.iosUrl;
+  return service.androidUrl;
+}
 
 const statusMeta = {
   paid: { label: 'Fatura quitada', tone: colors.success, icon: 'shield-checkmark' },
@@ -360,7 +382,7 @@ export default function HomeScreen() {
                 key={service.id}
                 title={service.title}
                 icon={service.icon}
-                url={service.url}
+                url={digitalServiceUrl(service)}
               />
             ))}
           </ScrollView>

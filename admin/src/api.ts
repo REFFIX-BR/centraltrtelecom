@@ -256,12 +256,36 @@ export type PushToken = {
   updatedAt: string;
 };
 
+export type PushSegmentFilters = {
+  contract: string[];
+  financial: string[];
+  recurrence: string[];
+};
+
+export type PushProfile = {
+  document: string;
+  login: string;
+  statusTipo: string | null;
+  contract: string;
+  financial: string;
+  recurrence: string;
+  updatedAt: string | null;
+};
+
+export type PushSegmentOption = { id: string; label: string };
+
+export type PushAudience = {
+  profiles: Record<string, PushProfile>;
+  segments: Record<keyof PushSegmentFilters, PushSegmentOption[]>;
+};
+
 export type PushHistoryItem = {
   id: string;
   title: string;
   body: string;
   route: string;
   sendToAll: boolean;
+  filters?: PushSegmentFilters | null;
   document: string;
   login: string;
   recipients: number;
@@ -282,6 +306,12 @@ export async function listPushHistory() {
   return data.history;
 }
 
+export async function getPushAudience(refresh = false) {
+  return request<PushAudience>(
+    `/api/admin/push/audience${refresh ? '?refresh=1' : ''}`
+  );
+}
+
 export async function sendPush(input: {
   title: string;
   body: string;
@@ -290,6 +320,7 @@ export async function sendPush(input: {
   login?: string;
   token?: string;
   sendToAll?: boolean;
+  filters?: PushSegmentFilters;
 }) {
   const data = await request<{ result: PushHistoryItem }>('/api/admin/push/send', {
     method: 'POST',
