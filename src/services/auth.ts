@@ -1,4 +1,5 @@
-import { apiRequest } from '@/src/services/api';
+import { ApiError, apiRequest } from '@/src/services/api';
+import { getBannersApiBase } from '@/src/services/banners';
 import type { AddressParts, PlanInfo, Subscriber } from '@/src/types';
 import { formatDocument, onlyDigits } from '@/src/utils/format';
 
@@ -45,7 +46,12 @@ export type LoginPointOption = {
 
 export type AuthResult =
   | { status: 'authenticated'; subscriber: Subscriber }
-  | { status: 'select_point'; client: SacClient; options: LoginPointOption[] };
+  | {
+      status: 'select_point';
+      client: SacClient;
+      options: LoginPointOption[];
+      sessionToken?: string;
+    };
 
 const EMPTY_PLAN: PlanInfo = {
   name: 'Plano em atualização',
@@ -122,6 +128,37 @@ export async function loginSac(documento: string, senha: string): Promise<SacCli
   }
 
   return client;
+}
+
+/**
+ * Login pelo centralapi, que valida no SAC e emite o token de sessão.
+ * Se o servidor estiver fora do ar, cai no login direto (sem token).
+ */
+async function loginWithSession(
+  documento: string,
+  senha: string
+): Promise<{ client: SacClient; sessionToken?: string }> {
+  const base = getBannersApiBase();
+  if (base) {
+    try {
+      const data = await apiRequest<{ client?: SacClient; sessionToken?: string }>(
+        `${base}/api/app/login`,
+        {
+          method: 'POST',
+          body: { documento: onlyDigits(documento), senha },
+          timeoutMs: 60000,
+        }
+      );
+      if (data?.client && data.sessionToken) {
+        return { client: data.client, sessionToken: data.sessionToken };
+      }
+    } catch (error) {
+      if (error instanceof ApiError && [400, 401, 429].includes(error.status)) {
+        throw error;
+      }
+    }
+  }
+  return { client: await loginSac(documento, senha) };
 }
 
 export function buildAddress(client: SacClient): string {
@@ -224,7 +261,7 @@ export async function authenticateWithDocument(
   documento: string,
   senha: string
 ): Promise<AuthResult> {
-  const client = await loginSac(documento, senha);
+  const { client, sessionToken } = await loginWithSession(documento, senha);
   const items = await listarLogins(documento);
   const fallbackAddress = buildAddress(client);
   const options = buildLoginPointOptions(items, fallbackAddress);
@@ -232,11 +269,10 @@ export async function authenticateWithDocument(
   if (options.length === 1) {
     return {
       status: 'authenticated',
-      subscriber: mapSacClientToSubscriber(
-        client,
-        options[0].login,
-        options[0].address
-      ),
+      subscriber: {
+        ...mapSacClientToSubscriber(client, options[0].login, options[0].address),
+        sessionToken,
+      },
     };
   }
 
@@ -244,5 +280,6 @@ export async function authenticateWithDocument(
     status: 'select_point',
     client,
     options,
+    sessionToken,
   };
 }

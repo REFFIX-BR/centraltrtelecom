@@ -68,6 +68,8 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   const requestId = useRef(0);
   const applySnapshotRef = useRef(applyAccountSnapshot);
   applySnapshotRef.current = applyAccountSnapshot;
+  const sessionTokenRef = useRef(user?.sessionToken);
+  sessionTokenRef.current = user?.sessionToken;
 
   const loadAccountData = useCallback(
     async (subscriberLogin: string, subscriberDocument: string) => {
@@ -88,7 +90,10 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
                 : 'Não foi possível verificar sua conexão.',
           }));
 
-        const invoicesPromise = fetchAllInvoices(subscriberDocument).catch(
+        const invoicesPromise = fetchAllInvoices(
+          subscriberDocument,
+          sessionTokenRef.current
+        ).catch(
           () => [] as Awaited<ReturnType<typeof fetchAllInvoices>>
         );
 

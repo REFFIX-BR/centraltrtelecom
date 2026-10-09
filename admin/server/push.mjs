@@ -94,6 +94,49 @@ function pickRecipients({ document, login, sendToAll }) {
   return [];
 }
 
+const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
+const RECEIPT_ATTEMPTS = 4;
+const RECEIPT_DELAY_MS = 4000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function removePushTokens(dead) {
+  if (!dead.length) return 0;
+  const deadSet = new Set(dead);
+  const tokens = listPushTokens();
+  const next = tokens.filter((item) => !deadSet.has(item.token));
+  writeJson(TOKENS_FILE, next);
+  return tokens.length - next.length;
+}
+
+/**
+ * O ticket "ok" só diz que a Expo aceitou; a entrega real (FCM/APNs) vem no
+ * recibo, que fica pronto alguns segundos depois.
+ */
+async function fetchReceipts(ids) {
+  const receipts = {};
+  let pending = [...ids];
+  for (let attempt = 0; attempt < RECEIPT_ATTEMPTS && pending.length; attempt += 1) {
+    await sleep(RECEIPT_DELAY_MS);
+    for (let i = 0; i < pending.length; i += 300) {
+      const chunk = pending.slice(i, i + 300);
+      try {
+        const response = await fetch(EXPO_RECEIPTS_URL, {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: chunk }),
+        });
+        const data = await response.json().catch(() => ({}));
+        Object.assign(receipts, data?.data || {});
+      } catch {
+        // tenta de novo na próxima rodada
+      }
+    }
+    pending = pending.filter((id) => !receipts[id]);
+  }
+  return receipts;
+}
+
 async function sendExpoMessages(messages) {
   const tickets = [];
   for (let i = 0; i < messages.length; i += 100) {
@@ -176,11 +219,45 @@ export async function sendPushNotification(input = {}) {
   }));
 
   const tickets = await sendExpoMessages(messages);
-  const ok = tickets.filter((item) => item?.status === 'ok').length;
-  const errors = tickets
-    .filter((item) => item?.status === 'error')
-    .map((item) => item.message)
-    .filter(Boolean);
+
+  const deadTokens = [];
+  const errorMessages = new Set();
+  const receiptToToken = new Map();
+  let failed = 0;
+
+  tickets.forEach((ticket, index) => {
+    const tokenValue = messages[index]?.to;
+    if (ticket?.status === 'ok' && ticket.id) {
+      receiptToToken.set(ticket.id, tokenValue);
+      return;
+    }
+    failed += 1;
+    if (ticket?.message) errorMessages.add(ticket.message);
+    if (ticket?.details?.error === 'DeviceNotRegistered') deadTokens.push(tokenValue);
+  });
+
+  const receipts = await fetchReceipts([...receiptToToken.keys()]);
+  let delivered = 0;
+  for (const [id, tokenValue] of receiptToToken) {
+    const receipt = receipts[id];
+    if (!receipt) continue;
+    if (receipt.status === 'ok') {
+      delivered += 1;
+      continue;
+    }
+    failed += 1;
+    const reason = receipt.details?.error;
+    if (reason === 'DeviceNotRegistered') {
+      deadTokens.push(tokenValue);
+      errorMessages.add(
+        'Aparelho não registrado (app desinstalado ou token do Expo Go) — removido da lista.'
+      );
+    } else if (receipt.message) {
+      errorMessages.add(reason ? `${reason}: ${receipt.message}` : receipt.message);
+    }
+  }
+  const pending = recipients.length - delivered - failed;
+  const removedTokens = removePushTokens(deadTokens);
 
   const record = {
     id: `push-${Date.now()}`,
@@ -192,8 +269,11 @@ export async function sendPushNotification(input = {}) {
     document: digits(document),
     login: String(login || '').trim(),
     recipients: recipients.length,
-    delivered: ok,
-    errors,
+    delivered,
+    failed,
+    pending,
+    removedTokens,
+    errors: [...errorMessages],
     createdAt: new Date().toISOString(),
   };
 

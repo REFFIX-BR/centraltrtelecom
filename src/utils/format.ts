@@ -31,14 +31,31 @@ export function formatCurrency(value: number): string {
   });
 }
 
+/**
+ * `new Date('2026-10-10')` é meia-noite UTC — no Brasil vira dia 9 às 21h.
+ * Datas sem horário (vencimentos, nascimento) são lidas no fuso local.
+ */
+export function parseDate(value: string): Date {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+      12
+    );
+  }
+  return new Date(value);
+}
+
 export function formatDate(value: string): string {
-  const date = new Date(value);
+  const date = parseDate(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString('pt-BR');
 }
 
 export function formatShortDate(value: string): string {
-  const date = new Date(value);
+  const date = parseDate(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString('pt-BR', {
     day: '2-digit',

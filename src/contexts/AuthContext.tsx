@@ -34,6 +34,7 @@ type PendingPointSelection = {
   client: SacClient;
   options: LoginPointOption[];
   fallbackAddress: string;
+  sessionToken?: string;
 };
 
 type AuthContextValue = {
@@ -136,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           client: result.client,
           options: result.options,
           fallbackAddress,
+          sessionToken: result.sessionToken,
         });
         return 'select_point' as const;
       }
@@ -162,11 +164,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? option.address
         : pendingPointSelection.fallbackAddress;
 
-      const subscriber = mapSacClientToSubscriber(
-        pendingPointSelection.client,
-        option.login,
-        address
-      );
+      const subscriber = {
+        ...mapSacClientToSubscriber(pendingPointSelection.client, option.login, address),
+        sessionToken: pendingPointSelection.sessionToken,
+      };
 
       setPendingPointSelection(null);
       await persistSession(subscriber);

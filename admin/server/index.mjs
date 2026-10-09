@@ -33,6 +33,13 @@ import {
   RECURRENCE_SEGMENTS,
   getPushProfiles,
 } from './pushProfiles.mjs';
+import {
+  AppLoginError,
+  appSessionConfigured,
+  loginAppUser,
+  requireAppSession,
+} from './appSession.mjs';
+import { getAppInvoices } from './appInvoices.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -536,6 +543,37 @@ app.post('/api/contracts/solicitacao', async (req, res) => {
     return res.status(status >= 400 && status < 600 ? status : 500).json({
       error: error instanceof Error ? error.message : 'Falha ao criar contrato.',
       details: error?.data || undefined,
+    });
+  }
+});
+
+/** App: valida CPF/CNPJ + senha no SAC e devolve o token de sessão. */
+app.post('/api/app/login', async (req, res) => {
+  if (!appSessionConfigured()) {
+    return res.status(503).json({ error: 'Sessão do app não configurada no servidor.' });
+  }
+  try {
+    const result = await loginAppUser({
+      documento: req.body?.documento,
+      senha: req.body?.senha,
+      ip: req.headers['x-forwarded-for'] || req.ip,
+    });
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof AppLoginError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    return res.status(502).json({ error: 'Não foi possível validar o acesso agora.' });
+  }
+});
+
+/** App: faturas do assinante logado (abertas + pagas), já normalizadas. */
+app.get('/api/app/invoices', requireAppSession, async (req, res) => {
+  try {
+    res.json(await getAppInvoices(req.appDocument));
+  } catch (error) {
+    res.status(502).json({
+      error: error instanceof Error ? error.message : 'Falha ao consultar faturas.',
     });
   }
 });

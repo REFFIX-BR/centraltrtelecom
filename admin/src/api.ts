@@ -290,6 +290,9 @@ export type PushHistoryItem = {
   login: string;
   recipients: number;
   delivered: number;
+  failed?: number;
+  pending?: number;
+  removedTokens?: number;
   errors: string[];
   createdAt: string;
 };

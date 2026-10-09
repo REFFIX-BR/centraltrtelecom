@@ -79,4 +79,6 @@ export type Subscriber = {
   tickets: SupportTicket[];
   documents: DocumentItem[];
   notifications: NotificationItem[];
+  /** Token emitido pelo centralapi no login; ausente em sessões antigas. */
+  sessionToken?: string;
 };

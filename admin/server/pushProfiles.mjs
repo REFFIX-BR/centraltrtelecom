@@ -1,14 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  digits,
+  formatDocument,
+  isoDay,
+  isoDayInBrazil,
+  postWebhook,
+} from './sacWebhook.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROFILES_FILE = path.join(__dirname, 'data', 'push-profiles.json');
 
-const WEBHOOK_BASE = (
-  process.env.SAC_WEBHOOK_BASE || 'https://webhook.trtelecom.net'
-).replace(/\/$/, '');
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 const CONCURRENCY = 4;
 /** Faturas pagas mais recentes avaliadas para "paga em dia". */
@@ -35,21 +39,6 @@ export const RECURRENCE_SEGMENTS = [
   { id: 'nao_recorrente', label: 'Não recorrente (atrasa)' },
   { id: 'sem_historico', label: 'Sem histórico suficiente' },
 ];
-
-function digits(value) {
-  return String(value || '').replace(/\D/g, '');
-}
-
-function formatDocument(value) {
-  const d = digits(value);
-  if (d.length === 11) {
-    return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-  }
-  if (d.length === 14) {
-    return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-  }
-  return d;
-}
 
 function normalizeText(value) {
   return String(value || '')
@@ -78,28 +67,6 @@ function writeProfiles(profiles) {
   fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), 'utf8');
 }
 
-async function postWebhook(pathname, body, timeoutMs = 60000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${WEBHOOK_BASE}${pathname}`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const text = await response.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export function classifyContract(statusTipo) {
   const value = normalizeText(statusTipo);
   if (!value) return 'desconhecido';
@@ -113,22 +80,9 @@ export function classifyContract(statusTipo) {
   return 'outro';
 }
 
-function isoDay(value) {
-  const raw = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  return br ? `${br[3]}-${br[2]}-${br[1]}` : null;
-}
-
-function todayIso() {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
-}
-
 export function classifyFinancial(openInvoices) {
   if (!Array.isArray(openInvoices)) return 'desconhecido';
-  const today = todayIso();
+  const today = isoDayInBrazil();
   const overdue = openInvoices.some((item) => {
     const due = isoDay(item?.DATA_VENCIMENTO);
     return due ? due < today : false;

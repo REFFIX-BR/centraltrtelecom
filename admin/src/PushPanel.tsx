@@ -294,9 +294,26 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
         token: audience === 'device' ? selectedToken : undefined,
       });
       setHistory((current) => [result, ...current]);
-      onSuccess(
-        `Enviado para ${result.delivered} de ${result.recipients} aparelho(s). Ao tocar, abre ${openLabel}.`
-      );
+      const failed = result.failed || 0;
+      const removed = result.removedTokens || 0;
+      const summary = [
+        `Entregue em ${result.delivered} de ${result.recipients} aparelho(s).`,
+        failed ? `${failed} falharam.` : null,
+        removed
+          ? `${removed} aparelho(s) inativo(s) removido(s) da lista — o cliente precisa abrir o app da loja para registrar de novo.`
+          : null,
+        result.pending ? `${result.pending} ainda sem confirmação.` : null,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      if (result.delivered === 0) {
+        onError(
+          `${summary}${result.errors.length ? ` Motivo: ${result.errors.join(' | ')}` : ''}`
+        );
+      } else {
+        onSuccess(`${summary} Ao tocar, abre ${openLabel}.`);
+      }
+      if (removed) void load();
       setTitle('');
       setBody('');
     } catch (error) {
@@ -636,8 +653,10 @@ export function PushPanel({ onError, onSuccess, onCounts }: Props) {
                     <strong>{item.title}</strong>
                     <p>{item.body}</p>
                     <small>
-                      {formatWhen(item.createdAt)} · {item.delivered}/
-                      {item.recipients} · {screenLabel(item.route)}
+                      {formatWhen(item.createdAt)} · entregue {item.delivered}/
+                      {item.recipients}
+                      {item.failed ? ` · ${item.failed} falha(s)` : ''} ·{' '}
+                      {screenLabel(item.route)}
                       {item.filters
                         ? ' · filtrado'
                         : item.sendToAll

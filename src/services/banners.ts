@@ -101,7 +101,8 @@ function resolveBannersApiBase(): string {
     return `http://${host}:4050`;
   }
 
-  return '';
+  // `eas update` não aplica o env do perfil de build do eas.json.
+  return 'https://centralapi.trtelecom.net';
 }
 
 function resolveBannersPath(): string {

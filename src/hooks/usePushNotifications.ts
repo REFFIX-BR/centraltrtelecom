@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 
 import { useAccount } from '@/src/contexts/AccountContext';
 import { useAuth } from '@/src/contexts/AuthContext';
@@ -21,6 +21,20 @@ export function usePushNotifications() {
   const registeredFor = useRef<string | null>(null);
   const handledResponse = useRef<string | null>(null);
   const navigatedRoute = useRef<string | null>(null);
+  const [foregroundTick, setForegroundTick] = useState(0);
+
+  // Reenvia o token sempre que o app volta ao primeiro plano: tokens antigos
+  // morrem (reinstalação, troca de aparelho) e a API pode estar fora no login.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        registeredFor.current = null;
+        setForegroundTick((value) => value + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web' || !isAuthenticated || !user) return;
@@ -58,7 +72,7 @@ export function usePushNotifications() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, foregroundTick]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

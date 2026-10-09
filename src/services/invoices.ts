@@ -1,6 +1,7 @@
 import { apiRequest } from '@/src/services/api';
+import { getBannersApiBase } from '@/src/services/banners';
 import type { Invoice, InvoiceStatus } from '@/src/types';
-import { formatDocument, onlyDigits } from '@/src/utils/format';
+import { formatDocument, onlyDigits, parseDate } from '@/src/utils/format';
 
 export type BoletoApiItem = {
   ID_TRANSACAO?: string | number | null;
@@ -121,7 +122,31 @@ export async function fetchPaidBoletos(documento: string): Promise<Invoice[]> {
     .filter((item): item is Invoice => !!item);
 }
 
-export async function fetchAllInvoices(documento: string): Promise<Invoice[]> {
+async function fetchInvoicesFromServer(sessionToken: string): Promise<Invoice[] | null> {
+  const base = getBannersApiBase();
+  if (!base) return null;
+  try {
+    const data = await apiRequest<{ invoices?: Invoice[] }>(`${base}/api/app/invoices`, {
+      method: 'GET',
+      token: sessionToken,
+      timeoutMs: 60000,
+    });
+    return Array.isArray(data?.invoices) ? data.invoices : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Com token, o centralapi entrega as faturas já tratadas; sem ele, consulta direto o SAC. */
+export async function fetchAllInvoices(
+  documento: string,
+  sessionToken?: string
+): Promise<Invoice[]> {
+  if (sessionToken) {
+    const fromServer = await fetchInvoicesFromServer(sessionToken);
+    if (fromServer) return fromServer;
+  }
+
   const [open, paid] = await Promise.all([
     fetchOpenBoletos(documento).catch(() => [] as Invoice[]),
     fetchPaidBoletos(documento).catch(() => [] as Invoice[]),
@@ -133,7 +158,7 @@ export async function fetchAllInvoices(documento: string): Promise<Invoice[]> {
   for (const invoice of open) byId.set(invoice.id, invoice);
 
   return [...byId.values()].sort(
-    (a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()
+    (a, b) => parseDate(b.dueDate).getTime() - parseDate(a.dueDate).getTime()
   );
 }
 

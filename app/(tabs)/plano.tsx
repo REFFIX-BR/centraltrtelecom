@@ -61,7 +61,7 @@ import {
 import { loadAndSyncUpgrade, syncPendingUpgradeFromComercial } from '@/src/services/syncUpgradeStatus';
 import { speedGainLabel } from '@/src/services/plans';
 import { colors, radius, shadows, spacing, tabScrollBottom } from '@/src/theme';
-import { formatCurrency, onlyDigits } from '@/src/utils/format';
+import { formatCurrency, onlyDigits, parseDate } from '@/src/utils/format';
 
 function planStatusLabel(status: string | undefined): string {
   const value = (status || '').trim().toUpperCase();
@@ -74,7 +74,7 @@ function planStatusLabel(status: string | undefined): string {
 
 function dueDayLabel(dueDate?: string): string {
   if (!dueDate) return 'Não informado';
-  const date = new Date(dueDate);
+  const date = parseDate(dueDate);
   if (Number.isNaN(date.getTime())) return 'Não informado';
   return `Dia ${String(date.getDate()).padStart(2, '0')}/cada mês`;
 }
